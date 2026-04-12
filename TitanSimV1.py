@@ -13,7 +13,7 @@ st.set_page_config(page_title="Titan Operations", layout="wide")
 @st.cache_resource
 def init_connection():
     url = st.secrets["https://evbykmqtmhsoaugbzwtx.supabase.co"]
-    key = st.secrets["sb_publishable_h6G7iSFVhQtdHdneiSWdHg_UHxaVnIg"]
+    key = st.secrets["eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV2YnlrbXF0bWhzb2F1Z2J6d3R4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYwMjEwMzcsImV4cCI6MjA5MTU5NzAzN30.ptzFK4oQfcMdc9L21LGGGaOmIctphtk9vFEdyIeNn8E"]
     return create_client(url, key)
 
 supabase = init_connection()
