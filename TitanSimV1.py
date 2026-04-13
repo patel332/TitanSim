@@ -17,122 +17,199 @@ def init_connection():
 
 supabase = init_connection()
 
-# --- CSS ARCHITECTURE (NATIVE GLASSMORPHISM) ---
+# --- CSS ARCHITECTURE (GLASSMORPHISM & ADAPTIVE THEMING) ---
 def apply_css():
     st.markdown("""
         <style>
-        /* Apple System Font Stack */
-        .stApp { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+        /* Base typography - Apple System Font Stack */
+        .stApp { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"; }
         
-        /* Frosted Glass Metrics */
-        [data-testid="stMetric"] {
-            background: rgba(128, 128, 128, 0.05);
-            backdrop-filter: blur(16px);
+        /* Sidebar layout adjustment */
+        [data-testid="stSidebar"] { min-width: 320px !important; background: rgba(128, 128, 128, 0.05); backdrop-filter: blur(20px); border-right: 1px solid rgba(128, 128, 128, 0.2); }
+        [data-testid="stHeader"] { background-color: transparent; }
+        .block-container { padding-top: 2rem !important; padding-bottom: 2rem !important; max-width: 1600px; }
+        
+        /* Glassmorphism Panels */
+        .dash-panel { 
+            background: rgba(128, 128, 128, 0.08); 
+            backdrop-filter: blur(16px); 
             -webkit-backdrop-filter: blur(16px);
-            border: 1px solid rgba(128, 128, 128, 0.2);
-            border-radius: 16px;
-            padding: 20px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
-            transition: transform 0.2s ease;
-        }
-        [data-testid="stMetric"]:hover { transform: translateY(-2px); }
-        
-        /* Clean Tabs */
-        .stTabs [data-baseweb="tab-list"] { gap: 12px; background: transparent; padding-bottom: 10px; }
-        .stTabs [data-baseweb="tab"] { 
-            background-color: transparent; 
             border: 1px solid rgba(128, 128, 128, 0.2); 
-            border-radius: 8px; 
-            padding: 8px 16px; 
-            font-weight: 500;
+            border-radius: 16px; 
+            padding: 24px; 
+            margin-bottom: 16px; 
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
         }
-        .stTabs [aria-selected="true"] { background-color: rgba(128, 128, 128, 0.15) !important; border-color: rgba(128, 128, 128, 0.4) !important; }
+        
+        /* Stat Cards */
+        .stat-card { 
+            background: rgba(128, 128, 128, 0.08); 
+            backdrop-filter: blur(16px); 
+            border: 1px solid rgba(128, 128, 128, 0.2); 
+            border-radius: 12px; 
+            padding: 16px; 
+            text-align: center; 
+            height: 100%; 
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
+        }
+        .stat-title { font-size: 13px; margin-bottom: 5px; font-weight: 500; opacity: 0.8;}
+        .stat-value { font-size: 24px; font-weight: 700; }
+        
+        /* Tables */
+        .dash-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        .dash-table th { padding: 12px; border-bottom: 1px solid rgba(128, 128, 128, 0.2); text-align: left; text-transform: uppercase; font-size: 11px; opacity: 0.7;}
+        .dash-table td { padding: 12px; border-bottom: 1px solid rgba(128, 128, 128, 0.1); }
+        
+        /* Tabs styling */
+        .stTabs [data-baseweb="tab-list"] { gap: 8px; background: transparent; }
+        .stTabs [data-baseweb="tab"] { background-color: rgba(128, 128, 128, 0.05); border: 1px solid rgba(128, 128, 128, 0.2); border-radius: 8px 8px 0 0; padding: 10px 20px; font-weight: 500;}
+        .stTabs [aria-selected="true"] { background-color: rgba(128, 128, 128, 0.15) !important; border-bottom-color: transparent !important; }
         
         /* Login Card */
         .login-card { 
-            background: rgba(128, 128, 128, 0.05); 
+            background: rgba(128, 128, 128, 0.1); 
             backdrop-filter: blur(20px); 
             border: 1px solid rgba(128, 128, 128, 0.2); 
-            border-radius: 24px; 
-            padding: 50px; 
+            border-radius: 20px; 
+            padding: 40px; 
             box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1); 
         }
+        hr { border-color: rgba(128, 128, 128, 0.2); margin-top: 10px; margin-bottom: 10px;}
         </style>
     """, unsafe_allow_html=True)
 
-# --- CONSTANTS ---
-GREEK_TEAMS = {1: "Alpha", 2: "Beta", 3: "Gamma", 4: "Delta", 5: "Epsilon", 6: "Zeta", 7: "Eta", 8: "Theta", 9: "Iota", 10: "Kappa"}
-BASE_MARKET_HEAVY, BASE_MARKET_LIGHT = 15000, 25000
+# --- ENGINE CONSTANTS ---
+BASE_MARKET_HEAVY = 15000 
+BASE_MARKET_LIGHT = 25000 
 MAX_WEEKS = 12
-COST_OVERHEAD, COST_INTEL, INTEREST_RATE, EMERGENCY_PENALTY = 150_000, 25_000, 0.02, 0.05
+
+COST_HOLDING_FG = 1.0  
+COST_HOLDING_RAW = 0.5 
+COST_OVERHEAD = 150_000
+COST_INTEL = 25_000
+INTEREST_RATE = 0.02
+EMERGENCY_PENALTY = 0.05
 MAX_DEBT = 15_000_000
 
+TRUCK_CAPACITY = 1000
 FREIGHT_RATES = {
-    'Economy (2 Wks)': {'FTL': 1000, 'LTL': 1.50, 'base_lead': 2, 'rel': 0.80},
-    'Standard (1 Wk)': {'FTL': 2000, 'LTL': 3.00, 'base_lead': 1, 'rel': 0.90},
-    'Express (Instant)': {'FTL': 4000, 'LTL': 6.00, 'base_lead': 0, 'rel': 0.99}
+    'Economy (2 Wks)': {'FTL': 1000, 'LTL': 1.50, 'base_lead': 2, 'reliability': 0.80},
+    'Standard (1 Wk)': {'FTL': 2000, 'LTL': 3.00, 'base_lead': 1, 'reliability': 0.90},
+    'Express (Instant)': {'FTL': 4000, 'LTL': 6.00, 'base_lead': 0, 'reliability': 0.99}
+}
+
+GREEK_TEAMS = {
+    1: "Alpha", 2: "Beta", 3: "Gamma", 4: "Delta", 5: "Epsilon",
+    6: "Zeta", 7: "Eta", 8: "Theta", 9: "Iota", 10: "Kappa"
 }
 
 # --- HELPERS ---
 def calc_freight(qty, mode):
     if qty <= 0: return 0
-    ftls, ltls = qty // 1000, qty % 1000
-    return min((ftls * FREIGHT_RATES[mode]['FTL']) + (ltls * FREIGHT_RATES[mode]['LTL']), (ftls + 1) * FREIGHT_RATES[mode]['FTL'])
+    ftls = qty // TRUCK_CAPACITY
+    ltls = qty % TRUCK_CAPACITY
+    exact_cost = (ftls * FREIGHT_RATES[mode]['FTL']) + (ltls * FREIGHT_RATES[mode]['LTL'])
+    round_up_cost = (ftls + 1) * FREIGHT_RATES[mode]['FTL']
+    return min(exact_cost, round_up_cost) 
 
-def get_lead_time(mode):
-    return FREIGHT_RATES[mode]['base_lead'] + (1 if random.random() > FREIGHT_RATES[mode]['rel'] else 0)
+def get_actual_lead_time(mode):
+    base = FREIGHT_RATES[mode]['base_lead']
+    rel = FREIGHT_RATES[mode]['reliability']
+    if random.random() > rel:
+        return base + 1 
+    return base
 
-def get_env(week):
-    mkt_h, mkt_l, c_met, c_pla = BASE_MARKET_HEAVY, BASE_MARKET_LIGHT, 10, 5
-    msg = "Global market conditions are stable."
+def get_environment(week):
+    msg = "Market conditions are stable."
+    m_type = "info"
+    mkt_h, mkt_l = BASE_MARKET_HEAVY, BASE_MARKET_LIGHT
+    c_met, c_pla = 10, 5
+
     if week in [4, 5]:
-        msg, mkt_h, mkt_l = "📉 RECESSION: Demand collapsed by 15% globally.", int(mkt_h * 0.85), int(mkt_l * 0.85)
+        msg = "RECESSION ACTIVE: Total market demand is down 15%. Avoid overproducing."
+        m_type = "error"
+        mkt_h = int(BASE_MARKET_HEAVY * 0.85)
+        mkt_l = int(BASE_MARKET_LIGHT * 0.85)
     elif week in [7, 8]:
-        msg, c_met, c_pla = "⚠️ SUPPLY SHOCK: Raw material costs have surged.", 15, 8
-    return mkt_h, mkt_l, c_met, c_pla, msg
+        msg = "SUPPLY SHOCK: Metal and Plastic procurement costs have skyrocketed."
+        m_type = "error"
+        c_met, c_pla = 15, 8
 
-def get_db(table, col='*', eq_col=None, eq_val=None):
-    q = supabase.table(table).select(col)
-    if eq_col: q = q.eq(eq_col, eq_val)
-    return q.execute().data
+    return mkt_h, mkt_l, c_met, c_pla, msg, m_type
 
-# --- LOGIN ---
+# --- DB FETCHERS ---
+def fetch_game_state():
+    res = supabase.table('game_state').select('*').eq('id', 1).execute()
+    return res.data[0]
+
+def fetch_team_state(tid):
+    res = supabase.table('team_state').select('*').eq('team_id', tid).execute()
+    return res.data[0]
+
+def has_submitted(tid, week):
+    res = supabase.table('pending_decisions').select('team_id').eq('team_id', tid).eq('week', week).execute()
+    return len(res.data) > 0
+
+# --- LOGIN SCREEN ---
 apply_css()
-if 'role' not in st.session_state: st.session_state.role, st.session_state.team_id = None, None
+
+if 'role' not in st.session_state: st.session_state.role = None
+if 'team_id' not in st.session_state: st.session_state.team_id = None
 
 if st.session_state.role is None:
     st.markdown("<br><br><br>", unsafe_allow_html=True)
-    _, col, _ = st.columns([1, 1.2, 1])
-    with col:
-        st.markdown("<div class='login-card'><h1 style='text-align:center; font-weight:800; margin-bottom:5px;'>Titan Operations</h1><p style='text-align:center; opacity:0.6; margin-bottom:30px;'>Strategic Supply Chain Simulator</p></div>", unsafe_allow_html=True)
-        mode = st.radio("Access Portal", ["Student Team", "Instructor Console"], horizontal=True, label_visibility="collapsed")
+    c1, c2, c3 = st.columns([1, 1.2, 1])
+    with c2:
+        st.markdown("<div class='login-card'>", unsafe_allow_html=True)
+        st.markdown("<h1 style='text-align: center; margin-bottom: 5px; font-weight: 800;'>Titan Operations</h1>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; opacity: 0.7; margin-bottom: 30px;'>Supply Chain Management Simulation</p>", unsafe_allow_html=True)
         
-        if mode == "Student Team":
-            t_id = int(st.selectbox("Firm Profile", [f"{i} - Team {GREEK_TEAMS[i]}" for i in range(1, 11)]).split(" ")[0])
+        login_type = st.radio("Access Level", ["Student Team", "Instructor Console"], horizontal=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        if login_type == "Student Team":
+            team_options = [f"{i} - Team {GREEK_TEAMS[i]}" for i in range(1, 11)]
+            t_selection = st.selectbox("Assign Competitor Profile", team_options)
+            t_id = int(t_selection.split(" ")[0])
             pwd = st.text_input("Access Key", type="password")
-            if st.button("Initialize Systems", use_container_width=True, type="primary"):
-                if get_db('teams', 'password', 'id', t_id)[0]['password'] == pwd:
-                    st.session_state.role, st.session_state.team_id = 'team', t_id; st.rerun()
-                else: st.error("Authentication Failed")
+            if st.button("Initialize Dashboard", use_container_width=True, type="primary"):
+                res = supabase.table('teams').select('password').eq('id', t_id).execute()
+                if res.data and res.data[0]['password'] == pwd:
+                    st.session_state.role = 'team'
+                    st.session_state.team_id = t_id
+                    st.rerun()
+                else:
+                    st.error("Authentication Failed")
         else:
             pwd = st.text_input("Master Password", type="password")
-            if st.button("Access Control Panel", use_container_width=True, type="primary"):
-                if pwd == "admin123": st.session_state.role = 'instructor'; st.rerun()
-                else: st.error("Access Denied")
+            if st.button("Enter Control Panel", use_container_width=True, type="primary"):
+                if pwd == "admin123":
+                    st.session_state.role = 'instructor'
+                    st.rerun()
+                else:
+                    st.error("Access Denied")
+        st.markdown("</div>", unsafe_allow_html=True)
     st.stop()
 
-# --- INSTRUCTOR ---
+
+# --- INSTRUCTOR DASHBOARD & ENGINE ---
 if st.session_state.role == 'instructor':
-    gs = get_db('game_state')[0]
-    t_teams = gs.get('total_teams', 10)
+    st.title("Instructor Control Panel")
+    game_state = fetch_game_state()
+    current_week = game_state['current_week']
+    status = game_state['status']
+    total_teams = game_state.get('total_teams', 10)
     
     with st.sidebar:
-        st.title("Admin Console")
-        if st.button("Log Out", use_container_width=True): st.session_state.clear(); st.rerun()
+        st.markdown("### Control Panel")
+        if st.button("Log Out"):
+            st.session_state.clear()
+            st.rerun()
+        
         st.markdown("---")
-        st.caption("DANGER ZONE")
-        if st.button("Hard Reset Simulation"):
-            with st.spinner("Reformatting..."):
+        st.error("🚨 Danger Zone")
+        if st.button("HARD RESTART GAME"):
+            with st.spinner("Wiping Database..."):
                 supabase.table('game_state').update({'current_week': 1, 'status': 'lobby'}).eq('id', 1).execute()
                 supabase.table('pending_decisions').delete().neq('team_id', 0).execute()
                 supabase.table('ledger').delete().neq('team_id', 0).execute()
@@ -140,371 +217,493 @@ if st.session_state.role == 'instructor':
                     supabase.table('team_state').update({
                         'cash': 5000000, 'debt': 0, 'quality_index': 1.0, 'metal_qty': 5000, 'plastic_qty': 10000,
                         'heavy_qty': 500, 'light_qty': 500, 'east_heavy_qty': 1000, 'east_light_qty': 1000,
-                        'west_heavy_qty': 1000, 'west_light_qty': 1000, 'transit_pipeline': '[]', 'last_revenue': 0, 'wasted_materials': 0,
-                        'fac_hours': 5000, 'raw_wh': 40000, 'hub_east_cap': 5000, 'hub_west_cap': 5000, 'transit_limit': 5000
+                        'west_heavy_qty': 1000, 'west_light_qty': 1000, 'transit_pipeline': '[]', 'last_revenue': 0,
+                        'wasted_materials': 0, 'fac_hours': 5000, 'raw_wh': 40000, 'hub_east_cap': 5000, 'hub_west_cap': 5000, 'transit_limit': 5000
                     }).eq('team_id', i).execute()
+            st.success("Simulation Reset to Week 1 Lobby.")
             st.rerun()
-
-    st.header(f"Instructor Control Panel - Week {gs['current_week']}")
     
-    if gs['status'] == 'lobby':
-        st.info("Simulation is in Lobby State. Students are locked out.")
-        t_teams = st.slider("Participating Teams", 2, 10, t_teams)
-        if st.button("Deploy Simulation", type="primary"):
-            supabase.table('game_state').update({'status': 'active', 'total_teams': t_teams}).eq('id', 1).execute(); st.rerun()
-        st.stop()
-
-    tab_ctrl, tab_data = st.tabs(["⚙️ Game Control", "📈 Global Analytics"])
+    tab_ctrl, tab_analytics = st.tabs(["⚙️ Game Control", "📈 Global Analytics"])
     
     with tab_ctrl:
-        subs = [s['team_id'] for s in get_db('pending_decisions', 'team_id', 'week', gs['current_week'])]
-        st.subheader(f"Submission Status: {len(subs)} / {t_teams} Ready")
+        st.markdown(f"### Current Phase: Week {current_week} | Status: {status.upper()}")
         
-        cols = st.columns(t_teams)
-        for i in range(1, t_teams + 1):
-            cols[i-1].metric(GREEK_TEAMS[i], "Ready" if i in subs else "Waiting")
+        if status == 'lobby':
+            st.markdown("<div class='dash-panel'>", unsafe_allow_html=True)
+            st.subheader("Simulation Lobby Initialization")
+            st.write("The game is currently locked. Students cannot submit decisions until the instructor starts the simulation.")
+            selected_teams = st.slider("Select Number of Participating Teams", min_value=2, max_value=10, value=total_teams)
+            if st.button("Launch Simulation", type="primary"):
+                supabase.table('game_state').update({'status': 'active', 'total_teams': selected_teams}).eq('id', 1).execute()
+                st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
+            st.stop()
+
+        if status == 'game_over':
+            st.markdown("<div class='dash-panel'>", unsafe_allow_html=True)
+            st.error("The simulation has concluded. View final metrics in Global Analytics.")
+            st.markdown("</div>", unsafe_allow_html=True)
             
+        subs = supabase.table('pending_decisions').select('team_id').eq('week', current_week).execute().data
+        sub_ids = [s['team_id'] for s in subs]
+        
+        st.write(f"**Teams Ready: {len(sub_ids)} / {total_teams}**")
+        cols = st.columns(total_teams)
+        for i in range(1, total_teams + 1):
+            color = "🟢 Ready" if i in sub_ids else "🔴 Waiting"
+            cols[i-1].markdown(f"<div class='stat-card'><div style='font-size:12px; font-weight:bold;'>{GREEK_TEAMS[i]}</div><div style='font-size:11px; opacity:0.8;'>{color}</div></div>", unsafe_allow_html=True)
+        
         st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("Process Next Week", type="primary", use_container_width=True, disabled=(gs['status'] == 'game_over')):
-            if len(subs) < t_teams: st.warning("Awaiting final submissions.")
-            else:
-                with st.spinner("Running Market Engine..."):
-                    all_decs = get_db('pending_decisions', '*', 'week', gs['current_week'])
-                    env_mkt_h, env_mkt_l, env_cost_met, env_cost_pla, _ = get_env(gs['current_week'])
-                    t_states = {t: get_db('team_state', '*', 'team_id', t)[0] for t in range(1, t_teams + 1)}
-                    
-                    utils, tot_u_h, tot_u_l = {}, 0, 0
-                    for dec in all_decs:
-                        tid = dec['team_id']
-                        if tid > t_teams: continue
-                        s = t_states[tid]
+        
+        col_run, col_stop = st.columns(2)
+        with col_run:
+            if st.button("Process Turn for All Teams", type="primary", use_container_width=True, disabled=(status == 'game_over')):
+                if len(sub_ids) < total_teams:
+                    st.warning("Not all teams have submitted.")
+                else:
+                    with st.spinner("Processing Global Market Engine..."):
+                        all_decs = supabase.table('pending_decisions').select('*').eq('week', current_week).execute().data
+                        env_mkt_h, env_mkt_l, env_cost_met, env_cost_pla, _, _ = get_environment(current_week)
                         
-                        s['cash'] += dec['net_fin']; s['debt'] = max(0, s['debt'] + dec['net_fin'])
-                        capex = (dec['cap_prod']*50) + (dec['cap_wh']*2) + (dec['cap_he']*5) + (dec['cap_hw']*5) + (dec['cap_tr']*10)
-                        s['cash'] -= capex
-                        s['fac_hours'] += dec['cap_prod']; s['raw_wh'] += dec['cap_wh']; s['hub_east_cap'] += dec['cap_he']; s['hub_west_cap'] += dec['cap_hw']; s['transit_limit'] += dec['cap_tr']
-                        s['quality_index'] = float(s['quality_index']) + (dec['rd_spend'] / 250_000.0)
+                        team_states = {t: fetch_team_state(t) for t in range(1, total_teams + 1)}
+                        utilities = {}
+                        total_u_h, total_u_l = 0, 0
                         
-                        u_h = math.exp(-1.5 * (dec['price_h']/100) + 0.3 * math.log(max(dec['mkt_e']+dec['mkt_w'], 1)) + 1.2 * s['quality_index'])
-                        u_l = math.exp(-2.5 * (dec['price_l']/100) + 0.2 * math.log(max(dec['mkt_e']+dec['mkt_w'], 1)) + 0.8 * s['quality_index'])
-                        utils[tid] = {'u_h': u_h, 'u_l': u_l, 'dec': dec, 's': s, 'cx': capex}
-                        tot_u_h += u_h; tot_u_l += u_l
+                        # Phase 1
+                        for dec in all_decs:
+                            tid = dec['team_id']
+                            if tid > total_teams: continue
+                            state = team_states[tid]
+                            
+                            if dec['net_fin'] < 0:
+                                repay = min(abs(dec['net_fin']), state['debt'])
+                                state['debt'] -= repay; state['cash'] -= repay
+                            else:
+                                state['debt'] += dec['net_fin']; state['cash'] += dec['net_fin']
+                                
+                            capex = (dec['cap_prod']*CAPEX_COST_PROD) + (dec['cap_wh']*CAPEX_COST_WAREHOUSE) + (dec['cap_he']*CAPEX_COST_HUB) + (dec['cap_hw']*CAPEX_COST_HUB) + (dec['cap_tr']*CAPEX_COST_TRANSIT)
+                            state['cash'] -= capex
+                            state['fac_hours'] += dec['cap_prod']; state['raw_wh'] += dec['cap_wh']; state['hub_east_cap'] += dec['cap_he']; state['hub_west_cap'] += dec['cap_hw']; state['transit_limit'] += dec['cap_tr']
+                            state['quality_index'] = float(state['quality_index']) + (dec['rd_spend'] / 250_000.0)
+                            state['has_intel'] = dec['buy_intel']
+                            
+                            u_h = math.exp(-1.5 * (dec['price_h']/100) + 0.3 * math.log(max(dec['mkt_e']+dec['mkt_w'], 1)) + 1.2 * state['quality_index'])
+                            u_l = math.exp(-2.5 * (dec['price_l']/100) + 0.2 * math.log(max(dec['mkt_e']+dec['mkt_w'], 1)) + 0.8 * state['quality_index'])
+                            utilities[tid] = {'u_h': u_h, 'u_l': u_l, 'dec': dec, 'state': state, 'capex': capex}
+                            total_u_h += u_h; total_u_l += u_l
+                            
+                        # Phase 2
+                        for tid, data in utilities.items():
+                            dec = data['dec']
+                            state = data['state']
+                            transit = state['transit_pipeline'] if isinstance(state['transit_pipeline'], list) else json.loads(state['transit_pipeline'])
+                            still_in_transit = []
+                            
+                            for t in transit:
+                                t['weeks_left'] -= 1
+                                if t['weeks_left'] <= 0:
+                                    if t['type'] == 'raw':
+                                        space_left = state['raw_wh'] - (state['metal_qty'] + state['plastic_qty'])
+                                        incoming = t['metal'] + t['plastic']
+                                        if incoming > space_left:
+                                            ratio = space_left / incoming if incoming > 0 else 0
+                                            state['metal_qty'] += int(t['metal'] * ratio); state['plastic_qty'] += int(t['plastic'] * ratio)
+                                            state['wasted_materials'] += (incoming - space_left)
+                                        else:
+                                            state['metal_qty'] += t['metal']; state['plastic_qty'] += t['plastic']
+                                    elif t['type'] == 'finished_east':
+                                        space_left = state['hub_east_cap'] - (state['east_heavy_qty'] + state['east_light_qty'])
+                                        incoming = t['heavy'] + t['light']
+                                        if incoming > space_left:
+                                            ratio = space_left / incoming if incoming > 0 else 0
+                                            state['east_heavy_qty'] += int(t['heavy'] * ratio); state['east_light_qty'] += int(t['light'] * ratio)
+                                        else:
+                                            state['east_heavy_qty'] += t['heavy']; state['east_light_qty'] += t['light']
+                                    elif t['type'] == 'finished_west':
+                                        space_left = state['hub_west_cap'] - (state['west_heavy_qty'] + state['west_light_qty'])
+                                        incoming = t['heavy'] + t['light']
+                                        if incoming > space_left:
+                                            ratio = space_left / incoming if incoming > 0 else 0
+                                            state['west_heavy_qty'] += int(t['heavy'] * ratio); state['west_light_qty'] += int(t['light'] * ratio)
+                                        else:
+                                            state['west_heavy_qty'] += t['heavy']; state['west_light_qty'] += t['light']
+                                else: still_in_transit.append(t)
+                            
+                            proc_lead = get_actual_lead_time(dec['proc_mode'])
+                            proc_freight_cost = calc_freight(dec['buy_metal'] + dec['buy_plastic'], dec['proc_mode'])
+                            mat_costs = (dec['buy_metal'] * env_cost_met) + (dec['buy_plastic'] * env_cost_pla)
+                            
+                            if proc_lead == 0 and (dec['buy_metal'] > 0 or dec['buy_plastic'] > 0): 
+                                state['metal_qty'] += dec['buy_metal']; state['plastic_qty'] += dec['buy_plastic']
+                            elif dec['buy_metal'] > 0 or dec['buy_plastic'] > 0:
+                                still_in_transit.append({'type': 'raw', 'metal': dec['buy_metal'], 'plastic': dec['buy_plastic'], 'weeks_left': proc_lead})
 
-                    for tid, data in utils.items():
-                        dec, s = data['dec'], data['s']
-                        transit = s['transit_pipeline'] if isinstance(s['transit_pipeline'], list) else json.loads(s['transit_pipeline'])
-                        new_t = []
-                        
-                        # Process Arriving Goods
-                        for t in transit:
-                            t['weeks_left'] -= 1
-                            if t['weeks_left'] <= 0:
-                                if t['type'] == 'raw':
-                                    space = s['raw_wh'] - (s['metal_qty'] + s['plastic_qty']); inc = t['metal'] + t['plastic']
-                                    if inc > space: ratio = space/inc if inc > 0 else 0; s['wasted_materials'] += (inc - space)
-                                    else: ratio = 1
-                                    s['metal_qty'] += int(t['metal'] * ratio); s['plastic_qty'] += int(t['plastic'] * ratio)
-                                elif t['type'] == 'finished_east':
-                                    space = s['hub_east_cap'] - (s['east_heavy_qty'] + s['east_light_qty']); inc = t['heavy'] + t['light']
-                                    ratio = space/inc if inc > space and inc > 0 else 1
-                                    s['east_heavy_qty'] += int(t['heavy'] * ratio); s['east_light_qty'] += int(t['light'] * ratio)
-                                elif t['type'] == 'finished_west':
-                                    space = s['hub_west_cap'] - (s['west_heavy_qty'] + s['west_light_qty']); inc = t['heavy'] + t['light']
-                                    ratio = space/inc if inc > space and inc > 0 else 1
-                                    s['west_heavy_qty'] += int(t['heavy'] * ratio); s['west_light_qty'] += int(t['light'] * ratio)
-                            else: new_t.append(t)
-                        
-                        # Procurement
-                        plead = get_lead_time(dec['proc_mode'])
-                        pcost = calc_freight(dec['buy_metal'] + dec['buy_plastic'], dec['proc_mode'])
-                        mcost = (dec['buy_metal'] * env_cost_met) + (dec['buy_plastic'] * env_cost_pla)
-                        if plead == 0: s['metal_qty'] += dec['buy_metal']; s['plastic_qty'] += dec['buy_plastic']
-                        elif dec['buy_metal'] > 0 or dec['buy_plastic'] > 0: new_t.append({'type': 'raw', 'metal': dec['buy_metal'], 'plastic': dec['buy_plastic'], 'weeks_left': plead})
+                            hours_available = state['fac_hours']
+                            req_heavy = min(dec['make_heavy'], min(state['metal_qty'] // 2, state['plastic_qty'] // 2))
+                            if req_heavy * 2 <= hours_available: actual_p_h = req_heavy
+                            else: actual_p_h = hours_available // 2
+                            hours_available -= (actual_p_h * 2)
+                            state['metal_qty'] -= (actual_p_h * 2); state['plastic_qty'] -= (actual_p_h * 2); state['heavy_qty'] += actual_p_h
+                            
+                            req_light = min(dec['make_light'], state['plastic_qty'] // 3)
+                            if req_light <= hours_available: actual_p_l = req_light
+                            else: actual_p_l = hours_available
+                            hours_available -= actual_p_l
+                            state['plastic_qty'] -= (actual_p_l * 3); state['light_qty'] += actual_p_l
+                            state['last_prod_heavy'] = actual_p_h; state['last_prod_light'] = actual_p_l; state['last_hours_used'] = state['fac_hours'] - hours_available
 
-                        # Manufacturing
-                        hrs = s['fac_hours']
-                        uh = min(dec['make_heavy'], s['metal_qty'] // 2, s['plastic_qty'] // 2, hrs // 2)
-                        s['metal_qty'] -= uh * 2; s['plastic_qty'] -= uh * 2; s['heavy_qty'] += uh; hrs -= (uh * 2)
-                        ul = min(dec['make_light'], s['plastic_qty'] // 3, hrs)
-                        s['plastic_qty'] -= ul * 3; s['light_qty'] += ul
-                        s['last_hours_used'] = s['fac_hours'] - hrs
-                        
-                        # Shipping
-                        tcap = s['transit_limit']
-                        t_e = dec['ship_east_heavy'] + dec['ship_east_light']; r_e = tcap / t_e if t_e > tcap else 1
-                        seh = min(int(dec['ship_east_heavy'] * r_e), s['heavy_qty']); s['heavy_qty'] -= seh
-                        sel = min(int(dec['ship_east_light'] * r_e), s['light_qty']); s['light_qty'] -= sel
-                        
-                        t_w = dec['ship_west_heavy'] + dec['ship_west_light']; r_w = tcap / t_w if t_w > tcap else 1
-                        swh = min(int(dec['ship_west_heavy'] * r_w), s['heavy_qty']); s['heavy_qty'] -= swh
-                        swl = min(int(dec['ship_west_light'] * r_w), s['light_qty']); s['light_qty'] -= swl
+                            transit_cap = state['transit_limit']
+                            total_east_req = dec['ship_east_heavy'] + dec['ship_east_light']
+                            if total_east_req > transit_cap:
+                                ratio_e = transit_cap / total_east_req
+                                actual_s_e_h = int(dec['ship_east_heavy'] * ratio_e); actual_s_e_l = int(dec['ship_east_light'] * ratio_e)
+                            else:
+                                actual_s_e_h, actual_s_e_l = dec['ship_east_heavy'], dec['ship_east_light']
 
-                        le, lw = get_lead_time(dec['e_mode']), get_lead_time(dec['w_mode'])
-                        scost = pcost + calc_freight(seh + sel, dec['e_mode']) + calc_freight(swh + swl, dec['w_mode'])
-                        
-                        if le == 0: s['east_heavy_qty'] += seh; s['east_light_qty'] += sel
-                        elif seh > 0 or sel > 0: new_t.append({'type': 'finished_east', 'heavy': seh, 'light': sel, 'weeks_left': le})
-                        if lw == 0: s['west_heavy_qty'] += swh; s['west_light_qty'] += swl
-                        elif swh > 0 or swl > 0: new_t.append({'type': 'finished_west', 'heavy': swh, 'light': swl, 'weeks_left': lw})
+                            total_west_req = dec['ship_west_heavy'] + dec['ship_west_light']
+                            if total_west_req > transit_cap:
+                                ratio_w = transit_cap / total_west_req
+                                actual_s_w_h = int(dec['ship_west_heavy'] * ratio_w); actual_s_w_l = int(dec['ship_west_light'] * ratio_w)
+                            else:
+                                actual_s_w_h, actual_s_w_l = dec['ship_west_heavy'], dec['ship_west_light']
 
-                        # Sales Engine
-                        dh = int(env_mkt_h * (data['u_h'] / tot_u_h)) if tot_u_h > 0 else 0
-                        dl = int(env_mkt_l * (data['u_l'] / tot_u_l)) if tot_u_l > 0 else 0
-                        
-                        seh_sold = min(int(dh/2), s['east_heavy_qty']); s['east_heavy_qty'] -= seh_sold
-                        sel_sold = min(int(dl/2), s['east_light_qty']); s['east_light_qty'] -= sel_sold
-                        swh_sold = min(int(dh/2), s['west_heavy_qty']); s['west_heavy_qty'] -= swh_sold
-                        swl_sold = min(int(dl/2), s['west_light_qty']); s['west_light_qty'] -= swl_sold
-                        
-                        rev = (seh_sold + swh_sold) * dec['price_h'] + (sel_sold + swl_sold) * dec['price_l']
-                        l_rev = max(0, dh - (seh_sold+swh_sold))*dec['price_h'] + max(0, dl - (sel_sold+swl_sold))*dec['price_l']
-                        
-                        interest = s['debt'] * INTEREST_RATE
-                        holding = (s['east_heavy_qty'] + s['east_light_qty'] + s['west_heavy_qty'] + s['west_light_qty']) * 1.0 + (s['metal_qty'] + s['plastic_qty']) * 0.5
-                        intel = COST_INTEL if dec['buy_intel'] else 0
-                        
-                        exp = COST_OVERHEAD + mcost + scost + holding + dec['mkt_e'] + dec['mkt_w'] + dec['rd_spend'] + interest + intel
-                        s['cash'] += (rev - exp)
-                        if s['cash'] < 0: s['debt'] += (abs(s['cash']) * (1 + EMERGENCY_PENALTY)); s['cash'] = 0
+                            actual_s_e_h = min(actual_s_e_h, state['heavy_qty']); state['heavy_qty'] -= actual_s_e_h
+                            actual_s_w_h = min(actual_s_w_h, state['heavy_qty']); state['heavy_qty'] -= actual_s_w_h
+                            actual_s_e_l = min(actual_s_e_l, state['light_qty']); state['light_qty'] -= actual_s_e_l
+                            actual_s_w_l = min(actual_s_w_l, state['light_qty']); state['light_qty'] -= actual_s_w_l
 
-                        supabase.table('team_state').update({
-                            'cash': s['cash'], 'debt': s['debt'], 'last_revenue': rev, 'quality_index': s['quality_index'], 
-                            'metal_qty': s['metal_qty'], 'plastic_qty': s['plastic_qty'], 'heavy_qty': s['heavy_qty'], 'light_qty': s['light_qty'], 
-                            'east_heavy_qty': s['east_heavy_qty'], 'east_light_qty': s['east_light_qty'], 'west_heavy_qty': s['west_heavy_qty'], 'west_light_qty': s['west_light_qty'], 
-                            'transit_pipeline': new_t, 'last_hours_used': s['last_hours_used'], 'wasted_materials': s['wasted_materials'], 'has_intel': dec['buy_intel'], 
-                            'fac_hours': s['fac_hours'], 'raw_wh': s['raw_wh'], 'hub_east_cap': s['hub_east_cap'], 'hub_west_cap': s['hub_west_cap'], 'transit_limit': s['transit_limit']
-                        }).eq('team_id', tid).execute()
-                        
-                        supabase.table('ledger').insert({
-                            'team_id': tid, 'week': gs['current_week'], 'revenue': rev, 'total_exp': exp + data['cx'], 
-                            'cash': s['cash'], 'debt': s['debt'], 'lost_sales': l_rev, 'materials': mcost, 'shipping': scost, 
-                            'holding': holding, 'marketing': dec['mkt_e']+dec['mkt_w']+intel, 'rd': dec['rd_spend'], 'overhead': COST_OVERHEAD, 'interest': interest, 'capex': data['cx']
-                        }).execute()
-                        
-                    supabase.table('game_state').update({'current_week': gs['current_week'] + 1, 'status': 'active' if gs['current_week'] < 12 else 'game_over'}).eq('id', 1).execute()
-                    st.rerun()
+                            lead_e = get_actual_lead_time(dec['e_mode'])
+                            cost_e = calc_freight(actual_s_e_h + actual_s_e_l, dec['e_mode'])
+                            if lead_e == 0 and (actual_s_e_h > 0 or actual_s_e_l > 0): state['east_heavy_qty'] += actual_s_e_h; state['east_light_qty'] += actual_s_e_l
+                            elif actual_s_e_h > 0 or actual_s_e_l > 0: still_in_transit.append({'type': 'finished_east', 'heavy': actual_s_e_h, 'light': actual_s_e_l, 'weeks_left': lead_e})
 
-    with tab_data:
-        df = pd.DataFrame(get_db('ledger'))
-        if df.empty: st.info("Analytics will populate after Week 1.")
+                            lead_w = get_actual_lead_time(dec['w_mode'])
+                            cost_w = calc_freight(actual_s_w_h + actual_s_w_l, dec['w_mode'])
+                            if lead_w == 0 and (actual_s_w_h > 0 or actual_s_w_l > 0): state['west_heavy_qty'] += actual_s_w_h; state['west_light_qty'] += actual_s_w_l
+                            elif actual_s_w_h > 0 or actual_s_w_l > 0: still_in_transit.append({'type': 'finished_west', 'heavy': actual_s_w_h, 'light': actual_s_w_l, 'weeks_left': lead_w})
+
+                            state['transit_pipeline'] = still_in_transit
+
+                            share_h = data['u_h'] / total_u_h if total_u_h > 0 else 0
+                            share_l = data['u_l'] / total_u_l if total_u_l > 0 else 0
+                            demand_h = int(env_mkt_h * share_h); demand_l = int(env_mkt_l * share_l)
+                            
+                            sold_e_h = min(int(demand_h/2), state['east_heavy_qty']); state['east_heavy_qty'] -= sold_e_h
+                            sold_e_l = min(int(demand_l/2), state['east_light_qty']); state['east_light_qty'] -= sold_e_l
+                            sold_w_h = min(int(demand_h/2), state['west_heavy_qty']); state['west_heavy_qty'] -= sold_w_h
+                            sold_w_l = min(int(demand_l/2), state['west_light_qty']); state['west_light_qty'] -= sold_w_l
+                            
+                            revenue = (sold_e_h + sold_w_h) * dec['price_h'] + (sold_e_l + sold_w_l) * dec['price_l']
+                            lost_sales_h = max(0, demand_h - (sold_e_h + sold_w_h))
+                            lost_sales_l = max(0, demand_l - (sold_e_l + sold_w_l))
+                            lost_revenue = (lost_sales_h * dec['price_h']) + (lost_sales_l * dec['price_l'])
+                            
+                            state['cash'] += revenue
+                            holding_costs = ((state['east_heavy_qty'] + state['east_light_qty'] + state['west_heavy_qty'] + state['west_light_qty']) * COST_HOLDING_FG) + ((state['metal_qty'] + state['plastic_qty']) * COST_HOLDING_RAW)
+
+                            intel_cost = COST_INTEL if dec['buy_intel'] else 0
+                            interest = state['debt'] * INTEREST_RATE
+                            expenses = COST_OVERHEAD + mat_costs + proc_freight_cost + cost_e + cost_w + holding_costs + dec['mkt_e'] + dec['mkt_w'] + dec['rd_spend'] + interest + intel_cost
+                            
+                            state['cash'] -= expenses
+                            if state['cash'] < 0: state['debt'] += (abs(state['cash']) * (1 + EMERGENCY_PENALTY)); state['cash'] = 0
+
+                            supabase.table('team_state').update({
+                                'cash': state['cash'], 'debt': state['debt'], 'quality_index': state['quality_index'],
+                                'wasted_materials': state['wasted_materials'], 'has_intel': state['has_intel'], 'last_revenue': revenue,
+                                'fac_hours': state['fac_hours'], 'raw_wh': state['raw_wh'], 'hub_east_cap': state['hub_east_cap'], 'hub_west_cap': state['hub_west_cap'], 'transit_limit': state['transit_limit'],
+                                'metal_qty': state['metal_qty'], 'plastic_qty': state['plastic_qty'], 'heavy_qty': state['heavy_qty'], 'light_qty': state['light_qty'],
+                                'east_heavy_qty': state['east_heavy_qty'], 'east_light_qty': state['east_light_qty'], 'west_heavy_qty': state['west_heavy_qty'], 'west_light_qty': state['west_light_qty'],
+                                'transit_pipeline': state['transit_pipeline'], 'last_prod_heavy': state['last_prod_heavy'], 'last_prod_light': state['last_prod_light'], 'last_hours_used': state['last_hours_used']
+                            }).eq('team_id', tid).execute()
+                            
+                            supabase.table('ledger').insert({
+                                'team_id': tid, 'week': current_week, 'revenue': revenue, 'materials': mat_costs, 'shipping': proc_freight_cost + cost_e + cost_w, 'holding': holding_costs,
+                                'marketing': dec['mkt_e'] + dec['mkt_w'] + intel_cost, 'rd': dec['rd_spend'], 'overhead': COST_OVERHEAD, 'interest': interest, 'capex': data['capex'], 
+                                'total_exp': expenses + data['capex'], 'lost_sales': lost_revenue, 'cash': state['cash'], 'debt': state['debt']
+                            }).execute()
+                            
+                        new_week = current_week + 1
+                        new_status = 'active' if new_week <= MAX_WEEKS else 'game_over'
+                        supabase.table('game_state').update({'current_week': new_week, 'status': new_status}).eq('id', 1).execute()
+                        st.rerun()
+                        
+        with col_stop:
+            if st.button("End Game Early", use_container_width=True, disabled=(status == 'game_over')):
+                supabase.table('game_state').update({'status': 'game_over'}).eq('id', 1).execute()
+                st.rerun()
+
+    with tab_analytics:
+        st.markdown("### Global Performance Telemetry")
+        
+        all_ledgers = supabase.table('ledger').select('*').execute().data
+        if not all_ledgers:
+            st.info("No data available yet. Analytics will populate after Week 1 is processed.")
         else:
-            df['Team'] = df['team_id'].map(GREEK_TEAMS)
-            df = df[df['team_id'] <= t_teams]
+            df = pd.DataFrame(all_ledgers)
+            df['Team Name'] = df['team_id'].map(GREEK_TEAMS)
+            df = df[df['team_id'] <= total_teams] # Filter out inactive teams
             
-            c_states = pd.DataFrame([get_db('team_state', '*', 'team_id', t)[0] for t in range(1, t_teams + 1)])
-            c_states['Team'] = c_states['team_id'].map(GREEK_TEAMS)
-            c_states['Net'] = c_states['cash'] - c_states['debt']
+            # Leaderboard (Current Status)
+            current_states = pd.DataFrame([fetch_team_state(t) for t in range(1, total_teams + 1)])
+            current_states['Team Name'] = current_states['team_id'].map(GREEK_TEAMS)
+            current_states['Net Position'] = current_states['cash'] - current_states['debt']
+            current_states = current_states.sort_values(by='Net Position', ascending=False)
             
-            st.subheader("Global Leaderboard (Net Position)")
-            fig_bar = go.Figure(go.Bar(x=c_states['Team'], y=c_states['Net'], marker_color=['#10b981' if v>=0 else '#f43f5e' for v in c_states['Net']]))
-            fig_bar.update_layout(height=350, margin=dict(l=0, r=0, t=10, b=0))
+            st.markdown("<div class='dash-panel'>", unsafe_allow_html=True)
+            st.markdown("#### Live Rankings (Net Position)")
+            fig_bar = go.Figure()
+            fig_bar.add_trace(go.Bar(
+                x=current_states['Team Name'], 
+                y=current_states['Net Position'],
+                marker_color=['#22c55e' if v >= 0 else '#ef4444' for v in current_states['Net Position']]
+            ))
+            fig_bar.update_layout(height=300, margin=dict(l=0, r=0, t=30, b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
             st.plotly_chart(fig_bar, use_container_width=True, theme="streamlit")
-            
-            ch1, ch2 = st.columns(2)
-            with ch1:
-                st.subheader("Revenue Trajectory")
-                fig_rev = go.Figure()
-                for team in df['Team'].unique():
-                    tdf = df[df['Team'] == team].sort_values('week')
-                    fig_rev.add_trace(go.Scatter(x=tdf['week'], y=tdf['revenue'], mode='lines+markers', name=team))
-                fig_rev.update_layout(height=350, margin=dict(l=0, r=0, t=10, b=0))
-                st.plotly_chart(fig_rev, use_container_width=True, theme="streamlit")
-            with ch2:
-                st.subheader("Market Share Dominance")
-                lw = df[df['week'] == df['week'].max()]
-                fig_pie = go.Figure(go.Pie(labels=lw['Team'], values=lw['revenue'], hole=0.4))
-                fig_pie.update_layout(height=350, margin=dict(l=0, r=0, t=10, b=0))
-                st.plotly_chart(fig_pie, use_container_width=True, theme="streamlit")
+            st.markdown("</div>", unsafe_allow_html=True)
 
-# --- STUDENT ---
+            col_ch1, col_ch2 = st.columns(2)
+            with col_ch1:
+                st.markdown("<div class='dash-panel'>", unsafe_allow_html=True)
+                st.markdown("#### Revenue Trajectory")
+                fig_rev = go.Figure()
+                for team in df['Team Name'].unique():
+                    team_data = df[df['Team Name'] == team].sort_values(by='week')
+                    fig_rev.add_trace(go.Scatter(x=team_data['week'], y=team_data['revenue'], mode='lines+markers', name=team))
+                fig_rev.update_layout(height=350, margin=dict(l=0, r=0, t=30, b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+                st.plotly_chart(fig_rev, use_container_width=True, theme="streamlit")
+                st.markdown("</div>", unsafe_allow_html=True)
+                
+            with col_ch2:
+                st.markdown("<div class='dash-panel'>", unsafe_allow_html=True)
+                st.markdown("#### Quality Index Growth")
+                fig_q = go.Figure()
+                for tid in range(1, total_teams + 1):
+                    # Reconstruct quality over time based on R&D spend to plot it
+                    team_data = df[df['team_id'] == tid].sort_values(by='week')
+                    q_vals = [1.0] # Starting quality
+                    for rd in team_data['rd']:
+                        q_vals.append(q_vals[-1] + (rd / 250_000.0))
+                    # Plot aligned with weeks (Week 0 to current)
+                    weeks = [0] + list(team_data['week'])
+                    fig_q.add_trace(go.Scatter(x=weeks, y=q_vals, mode='lines', name=GREEK_TEAMS[tid]))
+                fig_q.update_layout(height=350, margin=dict(l=0, r=0, t=30, b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+                st.plotly_chart(fig_q, use_container_width=True, theme="streamlit")
+                st.markdown("</div>", unsafe_allow_html=True)
+
+
+# --- STUDENT TEAM DASHBOARD ---
 if st.session_state.role == 'team':
     tid = st.session_state.team_id
-    gs = get_db('game_state')[0]
-    s = get_db('team_state', '*', 'team_id', tid)[0]
+    game_state = fetch_game_state()
+    current_week = game_state['current_week']
+    status = game_state['status']
+    state = fetch_team_state(tid)
     
-    with st.sidebar:
-        st.title(f"Firm {GREEK_TEAMS[tid]}")
-        if st.button("Logout Portal", use_container_width=True): st.session_state.clear(); st.rerun()
-
-    if gs['status'] == 'lobby':
-        st.warning("Awaiting Instructor Authorization to begin the simulation.")
-        st.stop()
-
-    if gs['status'] == 'game_over' or s['debt'] > MAX_DEBT:
-        st.title("Final Executive Audit")
-        if s['debt'] > MAX_DEBT: st.error("FIRM INSOLVENT: Debt limits exceeded.")
-        else: st.success("Operations Terminated Successfully.")
+    st.sidebar.markdown(f"<h2>Team {GREEK_TEAMS[tid]}</h2>", unsafe_allow_html=True)
+    if st.sidebar.button("Log Out"):
+        st.session_state.clear()
+        st.rerun()
         
-        df = pd.DataFrame(get_db('ledger', '*', 'team_id', tid))
+    if status == 'lobby':
+        st.warning("The Instructor has not started the simulation yet. Please wait in the lobby.")
+        if st.button("Refresh Status"): st.rerun()
+        st.stop()
+        
+    if status == 'game_over' or state['debt'] > MAX_DEBT:
+        st.markdown("<div class='dash-panel'><h1 style='text-align: center; margin-bottom: 0;'>End of Term: Executive Summary Report</h1>", unsafe_allow_html=True)
+        if state['debt'] > MAX_DEBT: st.markdown("<h3 style='text-align: center; color: #ef4444;'>STATUS: INSOLVENT (MAXIMUM DEBT EXCEEDED)</h3>", unsafe_allow_html=True)
+        else: st.markdown("<h3 style='text-align: center; color: #22c55e;'>STATUS: OPERATIONS COMPLETED</h3>", unsafe_allow_html=True)
+            
+        st.markdown("<hr>", unsafe_allow_html=True)
+        
+        ledger_data = supabase.table('ledger').select('*').eq('team_id', tid).execute().data
+        df = pd.DataFrame(ledger_data) if ledger_data else pd.DataFrame()
+        
+        final_cash = state['cash']; final_debt = state['debt']
+        net_position = final_cash - final_debt
+        total_rev = df['revenue'].sum() if not df.empty else 0
+        total_exp = df['total_exp'].sum() if not df.empty else 0
+        total_lost = df['lost_sales'].sum() if not df.empty else 0
+
+        st.markdown("### I. Macro Financials")
         k1, k2, k3, k4 = st.columns(4)
-        k1.metric("Net Position", f"${(s['cash'] - s['debt']):,.0f}")
-        k2.metric("Total Revenue", f"${df['revenue'].sum() if not df.empty else 0:,.0f}")
-        k3.metric("Lost Sales (Stockouts)", f"${df['lost_sales'].sum() if not df.empty else 0:,.0f}")
-        k4.metric("Quality Index", f"{s['quality_index']:.2f}")
-        
-        st.subheader("Complete Financial Ledger")
-        st.dataframe(df.set_index('week'), use_container_width=True)
-        st.stop()
+        k1.markdown(f"<div class='stat-card'><div class='stat-title'>Net Position</div><div class='stat-value'>${net_position:,.0f}</div></div>", unsafe_allow_html=True)
+        k2.markdown(f"<div class='stat-card'><div class='stat-title'>Total Revenue</div><div class='stat-value'>${total_rev:,.0f}</div></div>", unsafe_allow_html=True)
+        k3.markdown(f"<div class='stat-card'><div class='stat-title'>Final Cash</div><div class='stat-value'>${final_cash:,.0f}</div></div>", unsafe_allow_html=True)
+        k4.markdown(f"<div class='stat-card'><div class='stat-title'>Final Debt</div><div class='stat-value'>${final_debt:,.0f}</div></div>", unsafe_allow_html=True)
 
-    if has_submitted(tid, gs['current_week']):
-        st.info(f"### Strategy Locked for Week {gs['current_week']}.")
-        st.write("Awaiting competitor actions and global market resolution.")
-        st.stop()
-
-    with st.sidebar:
-        env_h, env_l, c_met, c_pla, env_msg = get_env(gs['current_week'])
-        st.caption(f"Fiscal Quarter: Wk {gs['current_week']}/12")
-        with st.form("strategy_input"):
-            with st.expander("1. Pricing Strategy", expanded=True):
-                ph = st.slider("Heavy Price ($)", 100, 400, 150)
-                pl = st.slider("Light Price ($)", 50, 200, 80)
-            with st.expander("2. R&D & Marketing"):
-                rds = st.number_input("R&D Invest", step=10000)
-                mke = st.number_input("Mkt (East)", value=10000, step=5000)
-                mkw = st.number_input("Mkt (West)", value=10000, step=5000)
-                intel = st.checkbox("Market Intel ($25k)", value=True)
-            with st.expander("3. Production Control"):
-                pmode = st.selectbox("Inbound", ["Standard (1 Wk)", "Economy (2 Wks)", "Express (Instant)"])
-                bm = st.number_input(f"Metal (${c_met})", step=500)
-                bp = st.number_input(f"Plastic (${c_pla})", step=500)
-                mh = st.number_input("Build Heavy", value=500, step=100)
-                ml = st.number_input("Build Light", value=800, step=100)
-            with st.expander("4. Network Logistics"):
-                st.caption("East Bound")
-                emode = st.selectbox("E-Freight", ["Standard (1 Wk)", "Economy (2 Wks)", "Express (Instant)"])
-                seh, sel = st.number_input("Heavy(E)", value=250), st.number_input("Light(E)", value=400)
-                st.caption("West Bound")
-                wmode = st.selectbox("W-Freight", ["Standard (1 Wk)", "Economy (2 Wks)", "Express (Instant)"])
-                swh, swl = st.number_input("Heavy(W)", value=250), st.number_input("Light(W)", value=400)
-            with st.expander("5. Finance & CAPEX"):
-                cap_p, cap_rw = st.number_input("Add Hrs ($50)", step=100), st.number_input("Add RawWH ($2)", step=1000)
-                cap_eh, cap_wh = st.number_input("Add EastHub ($5)", step=500), st.number_input("Add WestHub ($5)", step=500)
-                cap_tr, nf = st.number_input("Add Transit ($10)", step=500), st.number_input("Financing (+/-)", step=100000)
-            
-            if st.form_submit_button("EXECUTE STRATEGY", use_container_width=True, type="primary"):
-                supabase.table('pending_decisions').insert({
-                    'team_id': tid, 'week': gs['current_week'], 'price_h': ph, 'price_l': pl,
-                    'rd_spend': rds, 'mkt_e': mke, 'mkt_w': mkw, 'buy_metal': bm, 'buy_plastic': bp,
-                    'make_heavy': mh, 'make_light': ml, 'ship_east_heavy': seh, 'ship_west_heavy': swh,
-                    'ship_east_light': sel, 'ship_west_light': swl, 'e_mode': emode, 'w_mode': wmode,
-                    'cap_prod': cap_p, 'cap_wh': cap_rw, 'cap_he': cap_eh, 'cap_hw': cap_wh, 'cap_tr': cap_tr,
-                    'net_fin': nf, 'buy_intel': intel, 'proc_mode': pmode
-                }).execute(); st.rerun()
-
-    st.title("Operations Command Center")
-    if "RECESSION" in env_msg or "SHOCK" in env_msg: st.error(env_msg)
-    else: st.info(env_msg)
-    
-    t1, t2, t3, t4 = st.tabs(["Telemetry", "Logistics Map", "Industry Rules", "Case Briefing"])
-    
-    with t1:
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Treasury", f"${s['cash']:,.0f}")
-        c2.metric("Total Debt", f"${s['debt']:,.0f}")
-        c3.metric("Quality Score", f"{s['quality_index']:.2f}")
-        c4.metric("Factory Utilization", f"{(s['last_hours_used']/s['fac_hours']*100 if s['fac_hours']>0 else 0):.1f}%")
-        
-        df = pd.DataFrame(get_db('ledger', '*', 'team_id', tid))
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("### II. Complete Ledger Export")
         if not df.empty:
-            cg1, cg2 = st.columns([1.5, 1])
-            with cg1:
-                st.markdown("### Revenue vs Stockout Erosion")
-                fig1 = go.Figure()
-                fig1.add_trace(go.Bar(x=df['week'], y=df['revenue'], name="Revenue", marker_color="#3b82f6"))
-                fig1.add_trace(go.Bar(x=df['week'], y=df['lost_sales'], name="Lost Sales", marker_color="#f43f5e"))
-                fig1.update_layout(barmode='group', height=300, margin=dict(l=0, r=0, t=10, b=0))
-                st.plotly_chart(fig1, use_container_width=True, theme="streamlit")
-            with cg2:
-                if s['has_intel'] and gs['current_week'] > 1:
-                    st.markdown("### Competitor Market Share")
-                    lw_data = pd.DataFrame(get_db('ledger', 'team_id, revenue', 'week', gs['current_week']-1))
-                    lw_data = lw_data[lw_data['team_id'] <= gs.get('total_teams', 10)]
-                    fig2 = go.Figure(go.Pie(labels=lw_data['team_id'].map(GREEK_TEAMS), values=lw_data['revenue'], hole=0.4))
-                    fig2.update_layout(height=300, margin=dict(l=0, r=0, t=10, b=0))
-                    st.plotly_chart(fig2, use_container_width=True, theme="streamlit")
-                else: st.warning("Market Visibility Classified. Intel required.")
+            st.dataframe(df.set_index('week'), use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+        st.stop()
+        
+    if has_submitted(tid, current_week):
+        st.info(f"### Decisions Submitted for Week {current_week}.")
+        st.write(f"Waiting for the instructor to process the global turn. Your dashboard will update automatically when Week {current_week + 1} begins.")
+        if st.button("Refresh Status"): st.rerun()
+        st.stop()
+        
+    # --- ACTIVE GAME UI ---
+    env_mkt_h, env_mkt_l, env_cost_met, env_cost_pla, alert_msg, alert_type = get_environment(current_week)
+    
+    with st.sidebar:
+        st.markdown(f"<div style='color: inherit; opacity: 0.7; margin-bottom:15px;'>Week {current_week} / {MAX_WEEKS}</div>", unsafe_allow_html=True)
+        
+        with st.form("decision_form"):
+            with st.expander("1. Pricing Strategy", expanded=True):
+                price_heavy = st.slider("Heavy Price ($)", 100, 300, 150, step=5)
+                price_light = st.slider("Light Price ($)", 50, 150, 80, step=5)
             
-            st.markdown("### Expense Burn")
-            fig3 = go.Figure()
-            for col, name, clr in [('overhead', 'Fixed Overhead', '#64748b'), ('materials', 'COGS', '#10b981'), ('shipping', 'Freight', '#6366f1'), ('marketing', 'S&M', '#d946ef'), ('holding', 'Holding', '#f59e0b')]:
-                fig3.add_trace(go.Bar(x=df['week'], y=df[col], name=name, marker_color=clr))
-            fig3.update_layout(barmode='stack', height=300, margin=dict(l=0, r=0, t=10, b=0))
-            st.plotly_chart(fig3, use_container_width=True, theme="streamlit")
+            with st.expander("2. R&D and Marketing"):
+                rd_spend = st.number_input("R&D Investment ($)", min_value=0, step=10000, value=0)
+                mkt_e = st.number_input("Mkt Spend (East Hub)", min_value=0, step=5000, value=10000)
+                mkt_w = st.number_input("Mkt Spend (West Hub)", min_value=0, step=5000, value=10000)
+                buy_intel = st.checkbox("Buy Market Intel ($25k)", value=True)
+            
+            with st.expander("3. Procurement & Production"):
+                proc_mode = st.selectbox("Freight Mode (Inbound)", ["Standard (1 Wk)", "Economy (2 Wks)", "Express (Instant)"])
+                buy_metal = st.number_input(f"Order Metal (${env_cost_met})", min_value=0, step=500, value=0)
+                buy_plastic = st.number_input(f"Order Plastic (${env_cost_pla})", min_value=0, step=500, value=0)
+                make_heavy = st.number_input("Produce Heavy", min_value=0, step=100, value=500)
+                make_light = st.number_input("Produce Light", min_value=0, step=100, value=800)
+            
+            with st.expander("4. Outbound Shipping"):
+                e_mode = st.selectbox("East Freight Mode", ["Standard (1 Wk)", "Economy (2 Wks)", "Express (Instant)"])
+                col1, col2 = st.columns(2)
+                ship_east_heavy = col1.number_input("Heavy (E)", min_value=0, step=100, value=250)
+                ship_east_light = col2.number_input("Light (E)", min_value=0, step=100, value=400)
+                w_mode = st.selectbox("West Freight Mode", ["Standard (1 Wk)", "Economy (2 Wks)", "Express (Instant)"])
+                col3, col4 = st.columns(2)
+                ship_west_heavy = col3.number_input("Heavy (W)", min_value=0, step=100, value=250)
+                ship_west_light = col4.number_input("Light (W)", min_value=0, step=100, value=400)
 
-    with t2:
-        i1, i2, i3, i4 = st.columns(4)
-        i1.metric("Raw Metal", f"{s['metal_qty']:,} / {s['raw_wh']:,}")
-        i2.metric("Raw Plastic", f"{s['plastic_qty']:,} / {s['raw_wh']:,}")
-        i3.metric("FG Heavy (Plant)", f"{s['heavy_qty']:,}")
-        i4.metric("FG Light (Plant)", f"{s['light_qty']:,}")
-        
-        st.markdown("---")
-        h1, h2, h3, h4 = st.columns(4)
-        h1.metric("East Hub (Heavy)", f"{s['east_heavy_qty']:,} / {s['hub_east_cap']:,}")
-        h2.metric("East Hub (Light)", f"{s['east_light_qty']:,} / {s['hub_east_cap']:,}")
-        h3.metric("West Hub (Heavy)", f"{s['west_heavy_qty']:,} / {s['hub_west_cap']:,}")
-        h4.metric("West Hub (Light)", f"{s['west_light_qty']:,} / {s['hub_west_cap']:,}")
-        
-        st.markdown("---")
-        st.markdown("### Active Transit Manifest")
-        transit = json.loads(s['transit_pipeline']) if isinstance(s['transit_pipeline'], str) else s['transit_pipeline']
-        if not transit: st.write("All clear. No assets in transit.")
-        else:
-            for t in transit:
-                if t['type'] == 'raw': st.info(f"**To Plant ({t['weeks_left']} Wks):** {t['metal']} Metal | {t['plastic']} Plastic")
-                elif t['type'] == 'finished_east': st.info(f"**To East Hub ({t['weeks_left']} Wks):** {t['heavy']} Heavy | {t['light']} Light")
-                elif t['type'] == 'finished_west': st.info(f"**To West Hub ({t['weeks_left']} Wks):** {t['heavy']} Heavy | {t['light']} Light")
+            with st.expander("5. Finance & CAPEX"):
+                cap_prod = st.number_input("Add Factory Hrs ($50/hr)", min_value=0, step=100)
+                cap_wh = st.number_input("Add Raw WH ($2/u)", min_value=0, step=1000)
+                cap_he = st.number_input("Add East Hub ($5/u)", min_value=0, step=500)
+                cap_hw = st.number_input("Add West Hub ($5/u)", min_value=0, step=500)
+                cap_tr = st.number_input("Add Transit ($10/u)", min_value=0, step=500)
+                net_financing = st.number_input("Net Financing (+ Borrow / - Repay)", value=0, step=100000)
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            submitted = st.form_submit_button("Submit Week", type="primary", use_container_width=True)
+            
+            if submitted:
+                supabase.table('pending_decisions').insert({
+                    'team_id': tid, 'week': current_week,
+                    'price_h': price_heavy, 'price_l': price_light,
+                    'mkt_e': mkt_e, 'mkt_w': mkt_w, 'rd_spend': rd_spend, 'buy_intel': buy_intel,
+                    'buy_metal': buy_metal, 'buy_plastic': buy_plastic, 'proc_mode': proc_mode,
+                    'make_heavy': make_heavy, 'make_light': make_light,
+                    'ship_east_heavy': ship_east_heavy, 'ship_east_light': ship_east_light, 'e_mode': e_mode,
+                    'ship_west_heavy': ship_west_heavy, 'ship_west_light': ship_west_light, 'w_mode': w_mode,
+                    'cap_prod': cap_prod, 'cap_wh': cap_wh, 'cap_he': cap_he, 'cap_hw': cap_hw, 'cap_tr': cap_tr,
+                    'net_fin': net_financing
+                }).execute()
+                st.rerun()
 
-    with t3:
-        st.markdown("""
-        ### Core Physics & Rules
-        
-        **Production Matrix**
-        | Product | Input Requirement | Time Required |
-        | :--- | :--- | :--- |
-        | **Titan Heavy** | 2 Metal, 2 Plastic | 2 Factory Hours |
-        | **Titan Light** | 3 Plastic | 1 Factory Hour |
+    st.markdown("<h2 style='margin-bottom:10px;'>Supply Chain Management Dashboard</h2>", unsafe_allow_html=True)
+    if alert_type == "warning": st.warning(alert_msg)
+    elif alert_type == "error": st.error(alert_msg)
+    else: st.info(alert_msg)
 
-        **Freight Logistics Engine**
-        | Carrier Mode | FTL Flat Rate | LTL Unit Rate | Base Lead Time | Delay Probability |
-        | :--- | :--- | :--- | :--- | :--- |
-        | **Economy** | $1,000 | $1.50 | 2 Weeks | 20% |
-        | **Standard** | $2,000 | $3.00 | 1 Week | 10% |
-        | **Express** | $4,000 | $6.00 | Instant | 1% |
-        
-        *(Note: 1 Full Truck Load [FTL] = 1,000 Units)*
+    tab_dash, tab_ops, tab_manual, tab_case = st.tabs(["Executive Dashboard", "Operations & Logistics", "Case Manual", "Business Case"])
 
-        **Demand Generation (MNL)**
-        Your market share is calculated as a zero-sum equation against all active firms.
-        * **Price:** Direct negative impact. Lowering prices captures volume but destroys margins.
-        * **Marketing:** Logarithmic positive impact. Has severe diminishing returns.
-        * **R&D:** Linear positive impact. Crucial for B2B Titan Heavy sales.
-        
-        **Corporate Finance Constraints**
-        * Bank interest is charged at **2% weekly** on total debt.
-        * If cash drops below zero, a mandatory emergency loan is triggered with a **5% penalty fee**.
-        * **Bankruptcy:** Total debt exceeding $15,000,000 triggers immediate corporate seizure.
-        """)
+    ledger_data = supabase.table('ledger').select('*').eq('team_id', tid).execute().data
+    df = pd.DataFrame(ledger_data) if ledger_data else pd.DataFrame()
 
-    with t4:
-        st.markdown(f"""
-        # Titan Operations: Navigating the Perfect Storm
+    with tab_dash:
+        k1, k2, k3, k4, k5, k6 = st.columns(6)
+        k1.markdown(f"<div class='stat-card'><div class='stat-title'>Cash Balance</div><div class='stat-value'>${state['cash']:,.0f}</div></div>", unsafe_allow_html=True)
+        k2.markdown(f"<div class='stat-card'><div class='stat-title'>Total Debt</div><div class='stat-value'>${state['debt']:,.0f}</div></div>", unsafe_allow_html=True)
+        k3.markdown(f"<div class='stat-card'><div class='stat-title'>Quality Index</div><div class='stat-value'>{state['quality_index']:.2f}</div></div>", unsafe_allow_html=True)
         
-        **Your Mandate**
-        You have been installed as the VP of Supply Chain for **Team {GREEK_TEAMS[tid]}**. Your board of directors demands that you stabilize operations, capture maximum market share, and generate elite free cash flow over the next 12-week fiscal quarter.
+        last_exp = df.iloc[-1]['total_exp'] if not df.empty else 0
+        last_lost = df.iloc[-1]['lost_sales'] if not df.empty else 0
         
-        **The Network Architecture**
-        You run a primary manufacturing facility that feeds two regional distribution centers (East Hub and West Hub). Your entire network is governed by hard physical constraints. 
-        * If you over-order raw materials, excess inventory is discarded as waste.
-        * If you over-produce, finished goods will choke your transit lines and hub capacities. 
-        * You must strategically execute **CAPEX** (Capital Expenditure) to upgrade these bottlenecks before you scale.
+        k4.markdown(f"<div class='stat-card'><div class='stat-title'>Last Wk Expenses</div><div class='stat-value'>-${last_exp:,.0f}</div></div>", unsafe_allow_html=True)
+        k5.markdown(f"<div class='stat-card'><div class='stat-title'>Last Wk Lost Sales</div><div class='stat-value'>-${last_lost:,.0f}</div></div>", unsafe_allow_html=True)
+        
+        if state['has_intel']: k6.markdown(f"<div class='stat-card'><div class='stat-title'>Market Visibility</div><div class='stat-value'>ACTIVE</div></div>", unsafe_allow_html=True)
+        else: k6.markdown(f"<div class='stat-card'><div class='stat-title'>Market Visibility</div><div class='stat-value'>CLASSIFIED</div></div>", unsafe_allow_html=True)
 
-        **The Looming Market Threats**
-        The macroeconomic outlook is grim. Our analysts have flagged two major anomalies:
-        
-        1.  **Q4/Q5 Demand Contraction (Weeks 4 & 5):** Global recessionary fears are mounting. Expect a massive 15% drop in total available market demand. If you maintain aggressive production targets during this window, your network will bloat with unsold holding costs.
-        2.  **Commodity Shock (Weeks 7 & 8):** Geopolitical instability in our primary sourcing regions will cause a violent spike in procurement costs. Metal will jump from \$10 to \$15, and Plastic will jump from \$5 to \$8. Firms that fail to stockpile raw materials prior to Week 7 will see their profit margins instantly erased.
-        
-        **Victory Condition**
-        You are competing directly against the other firms in this lobby. The firm that concludes Week 12 with the highest **Net Position (Cash minus Debt)** wins the market. Do not go bankrupt.
-        """)
+        col_mid, col_right, col_pie = st.columns([1.5, 1.5, 1])
+        with col_mid:
+            st.markdown("<div class='dash-panel'>", unsafe_allow_html=True)
+            st.markdown("### Expense Breakdown")
+            if not df.empty:
+                fig = go.Figure()
+                fig.add_trace(go.Bar(x=df['week'], y=df['overhead'], name='Overhead'))
+                fig.add_trace(go.Bar(x=df['week'], y=df['materials'], name='Materials'))
+                fig.add_trace(go.Bar(x=df['week'], y=df['shipping'], name='Shipping'))
+                fig.update_layout(barmode='stack', height=250, margin=dict(l=0, r=0, t=30, b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+                st.plotly_chart(fig, use_container_width=True, theme="streamlit")
+            else: st.info("Submit first week to generate chart.")
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        with col_right:
+            st.markdown("<div class='dash-panel'>", unsafe_allow_html=True)
+            st.markdown("### Revenue vs Lost Sales")
+            if not df.empty:
+                fig2 = go.Figure()
+                fig2.add_trace(go.Scatter(x=df['week'], y=df['revenue'], mode='lines+markers', name='Revenue'))
+                fig2.add_trace(go.Scatter(x=df['week'], y=df['lost_sales'], mode='lines+markers', name='Lost Sales'))
+                fig2.update_layout(height=250, margin=dict(l=0, r=0, t=30, b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+                st.plotly_chart(fig2, use_container_width=True, theme="streamlit")
+            else: st.info("Submit first week to generate chart.")
+            st.markdown("</div>", unsafe_allow_html=True)
+            
+        with col_pie:
+            st.markdown("<div class='dash-panel'>", unsafe_allow_html=True)
+            st.markdown("### Global Market Share")
+            if current_week > 1 and state['has_intel']:
+                global_ledger = supabase.table('ledger').select('team_id, revenue').eq('week', current_week - 1).execute().data
+                if global_ledger:
+                    tdf = pd.DataFrame(global_ledger)
+                    tdf = tdf[tdf['team_id'] <= game_state.get('total_teams', 10)]
+                    labels = [GREEK_TEAMS[d] for d in tdf['team_id']]
+                    fig3 = go.Figure(data=[go.Pie(labels=labels, values=tdf['revenue'], hole=.3)])
+                    fig3.update_layout(height=250, margin=dict(l=0, r=0, t=30, b=0), showlegend=False, paper_bgcolor='rgba(0,0,0,0)')
+                    fig3.update_traces(textinfo='label+percent', textfont_size=10)
+                    st.plotly_chart(fig3, use_container_width=True, theme="streamlit")
+            elif current_week == 1: st.info("Generates in Wk 2.")
+            else: st.info("Visibility Classified.")
+            st.markdown("</div>", unsafe_allow_html=True)
+
+    with tab_ops:
+        col_cap, col_inv = st.columns([1, 2.5])
+        with col_cap:
+            st.markdown("<div class='dash-panel'>", unsafe_allow_html=True)
+            st.markdown("### Capacity Utilization")
+            f_used, f_cap = state['last_hours_used'], state['fac_hours']
+            st.write(f"**Factory Hours:** {f_used:,} / {f_cap:,}")
+            st.progress(min(1.0, f_used / f_cap if f_cap > 0 else 0))
+
+            r_used, r_cap = state['metal_qty'] + state['plastic_qty'], state['raw_wh']
+            st.write(f"**Raw Warehouse:** {r_used:,} / {r_cap:,}")
+            st.progress(min(1.0, r_used / r_cap if r_cap > 0 else 0))
+
+            e_used, e_cap = state['east_heavy_qty'] + state['east_light_qty'], state['hub_east_cap']
+            st.write(f"**East Hub:** {e_used:,} / {e_cap:,}")
+            st.progress(min(1.0, e_used / e_cap if e_cap > 0 else 0))
+
+            w_used, w_cap = state['west_heavy_qty'] + state['west_light_qty'], state['hub_west_cap']
+            st.write(f"**West Hub:** {w_used:,} / {w_cap:,}")
+            st.progress(min(1.0, w_used / w_cap if w_cap > 0 else 0))
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        with col_inv:
+            inv_top1, inv_top2 = st.columns(2)
+            with inv_top1:
+                st.markdown("<div class='dash-panel'><h3 style='margin-top:0;'>Factory Stock</h3><table class='dash-table'><thead><tr><th>Asset</th><th>Qty</th></tr></thead><tbody><tr><td>Metal</td><td>{0:,}</td></tr><tr><td>Plastic</td><td>{1:,}</td></tr><tr><td>Heavy FG</td><td>{2:,}</td></tr><tr><td>Light FG</td><td>{3:,}</td></tr></tbody></table></div>".format(state['metal_qty'], state['plastic_qty'], state['heavy_qty'], state['light_qty']), unsafe_allow_html=True)
+            with inv_top2:
+                st.markdown("<div class='dash-panel'><h3 style='margin-top:0;'>Regional Hubs</h3><table class='dash-table'><thead><tr><th>Location</th><th>Heavy</th><th>Light</th></tr></thead><tbody><tr><td>East Hub</td><td>{0:,}</td><td>{1:,}</td></tr><tr><td>West Hub</td><td>{2:,}</td><td>{3:,}</td></tr></tbody></table></div>".format(state['east_heavy_qty'], state['east_light_qty'], state['west_heavy_qty'], state['west_light_qty']), unsafe_allow_html=True)
+
+    with tab_manual:
+        st.write("Manual content available in documentation.")
+
+    with tab_case:
+        st.write("Business Case available in documentation.")
