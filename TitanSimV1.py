@@ -99,6 +99,10 @@ def get_db(table, col='*', eq_col=None, eq_val=None):
     if eq_col: q = q.eq(eq_col, eq_val)
     return q.execute().data
 
+def has_submitted(tid, week):
+    res = supabase.table('pending_decisions').select('team_id').eq('team_id', tid).eq('week', week).execute()
+    return len(res.data) > 0
+
 # --- LOGIN ---
 apply_css()
 if 'role' not in st.session_state: st.session_state.role, st.session_state.team_id = None, None
@@ -300,11 +304,7 @@ if st.session_state.role == 'instructor':
             c_states['Net'] = c_states['cash'] - c_states['debt']
             
             st.subheader("Global Leaderboard (Net Position)")
-            fig_bar = go.Figure(go.Bar(
-                x=c_states['Team'], 
-                y=c_states['Net'], 
-                marker_color=['#10b981' if v>=0 else '#e11d48' for v in c_states['Net']]
-            ))
+            fig_bar = go.Figure(go.Bar(x=c_states['Team'], y=c_states['Net'], marker_color=['#10b981' if v>=0 else '#f43f5e' for v in c_states['Net']]))
             fig_bar.update_layout(height=350, margin=dict(l=0, r=0, t=10, b=0))
             st.plotly_chart(fig_bar, use_container_width=True, theme="streamlit")
             
@@ -312,15 +312,15 @@ if st.session_state.role == 'instructor':
             with ch1:
                 st.subheader("Revenue Trajectory")
                 fig_rev = go.Figure()
-                for i, team in enumerate(df['Team'].unique()):
+                for team in df['Team'].unique():
                     tdf = df[df['Team'] == team].sort_values('week')
-                    fig_rev.add_trace(go.Scatter(x=tdf['week'], y=tdf['revenue'], mode='lines+markers', name=team, marker_color=CORP_COLORS[i % len(CORP_COLORS)]))
+                    fig_rev.add_trace(go.Scatter(x=tdf['week'], y=tdf['revenue'], mode='lines+markers', name=team))
                 fig_rev.update_layout(height=350, margin=dict(l=0, r=0, t=10, b=0))
                 st.plotly_chart(fig_rev, use_container_width=True, theme="streamlit")
             with ch2:
                 st.subheader("Market Share Dominance")
                 lw = df[df['week'] == df['week'].max()]
-                fig_pie = go.Figure(go.Pie(labels=lw['Team'], values=lw['revenue'], hole=0.4, marker=dict(colors=CORP_COLORS)))
+                fig_pie = go.Figure(go.Pie(labels=lw['Team'], values=lw['revenue'], hole=0.4))
                 fig_pie.update_layout(height=350, margin=dict(l=0, r=0, t=10, b=0))
                 st.plotly_chart(fig_pie, use_container_width=True, theme="streamlit")
 
@@ -357,6 +357,7 @@ if st.session_state.role == 'team':
     if has_submitted(tid, gs['current_week']):
         st.info(f"### Strategy Locked for Week {gs['current_week']}.")
         st.write("Awaiting competitor actions and global market resolution.")
+        if st.button("Refresh Dashboard"): st.rerun()
         st.stop()
 
     with st.sidebar:
@@ -460,9 +461,9 @@ if st.session_state.role == 'team':
             if not transit: st.write("All clear. No assets in transit.")
             else:
                 for t in transit:
-                    if t['type'] == 'raw': st.write(f"📦 **To Plant ({t['weeks_left']} Wks):** {t['metal']} Metal | {t['plastic']} Plastic")
-                    elif t['type'] == 'finished_east': st.write(f"🚚 **To East Hub ({t['weeks_left']} Wks):** {t['heavy']} Heavy | {t['light']} Light")
-                    elif t['type'] == 'finished_west': st.write(f"🚚 **To West Hub ({t['weeks_left']} Wks):** {t['heavy']} Heavy | {t['light']} Light")
+                    if t['type'] == 'raw': st.info(f"**To Plant ({t['weeks_left']} Wks):** {t['metal']} Metal | {t['plastic']} Plastic")
+                    elif t['type'] == 'finished_east': st.info(f"**To East Hub ({t['weeks_left']} Wks):** {t['heavy']} Heavy | {t['light']} Light")
+                    elif t['type'] == 'finished_west': st.info(f"**To West Hub ({t['weeks_left']} Wks):** {t['heavy']} Heavy | {t['light']} Light")
 
     with t3:
         with st.container(border=True):
