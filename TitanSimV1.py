@@ -18,13 +18,14 @@ def init_connection():
 
 supabase = init_connection()
 
-# --- CSS ---
+# --- CSS OVERHAUL ---
 def apply_css():
     st.markdown("""
         <style>
         .stApp { background-color: #09090b; color: #f4f4f5; font-family: 'Inter', sans-serif; }
         [data-testid="stSidebar"] { background-color: #09090b; border-right: 1px solid #27272a; }
         [data-testid="stHeader"] { background-color: transparent; }
+        .login-card { background-color: #18181b; border: 1px solid #27272a; border-radius: 12px; padding: 40px; box-shadow: 0 15px 30px -5px rgba(0, 0, 0, 0.7); }
         .block-container { padding-top: 2rem !important; padding-bottom: 2rem !important; max-width: 1600px; }
         .stat-card { background-color: #18181b; border: 1px solid #27272a; border-radius: 8px; padding: 15px; text-align: center; height: 100%; }
         .stat-title { color: #a1a1aa; font-size: 13px; margin-bottom: 5px; font-weight: 500;}
@@ -141,28 +142,32 @@ def convert_df_to_csv(df):
 apply_css()
 
 if st.session_state.role is None:
-    st.markdown("<h1 style='text-align: center; margin-top:100px;'>Titan Operations</h1>", unsafe_allow_html=True)
-    col1, col2, col3 = st.columns([1, 1, 1])
-    with col2:
-        st.markdown("<div class='dash-panel'>", unsafe_allow_html=True)
-        login_type = st.selectbox("Login As:", ["Student Team", "Instructor"])
+    st.markdown("<br><br><br>", unsafe_allow_html=True)
+    c1, c2, c3 = st.columns([1, 1.2, 1])
+    with c2:
+        st.markdown("<div class='login-card'>", unsafe_allow_html=True)
+        st.markdown("<h1 style='text-align: center; color: white;'>TITAN OPERATIONS</h1>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #a1a1aa; margin-bottom: 30px;'>Supply Chain Management Simulation</p>", unsafe_allow_html=True)
+        
+        login_type = st.radio("Access Level", ["Student Team", "Instructor Console"], horizontal=True)
+        st.markdown("<br>", unsafe_allow_html=True)
         
         if login_type == "Student Team":
             team_options = [f"{i} - Team {GREEK_TEAMS[i]}" for i in range(1, 11)]
-            t_selection = st.selectbox("Select Competitor Profile", team_options)
+            t_selection = st.selectbox("Assign Competitor Profile", team_options)
             t_id = int(t_selection.split(" ")[0])
-            pwd = st.text_input("Password", type="password")
-            if st.button("Login", use_container_width=True):
+            pwd = st.text_input("Access Key", type="password")
+            if st.button("Initialize Dashboard", use_container_width=True, type="primary"):
                 res = supabase.table('teams').select('password').eq('id', t_id).execute()
                 if res.data and res.data[0]['password'] == pwd:
                     st.session_state.role = 'team'
                     st.session_state.team_id = t_id
                     st.rerun()
                 else:
-                    st.error("Incorrect Password")
+                    st.error("Authentication Failed")
         else:
-            pwd = st.text_input("Instructor Password", type="password")
-            if st.button("Login", use_container_width=True):
+            pwd = st.text_input("Master Password", type="password")
+            if st.button("Enter Control Panel", use_container_width=True, type="primary"):
                 if pwd == "admin123":
                     st.session_state.role = 'instructor'
                     st.rerun()
@@ -175,23 +180,42 @@ if st.session_state.role is None:
 # --- INSTRUCTOR DASHBOARD & ENGINE ---
 if st.session_state.role == 'instructor':
     st.title("Instructor Control Panel")
-    if st.button("Log Out"):
-        st.session_state.clear()
-        st.rerun()
-        
     game_state = fetch_game_state()
     current_week = game_state['current_week']
     status = game_state['status']
     total_teams = game_state.get('total_teams', 10)
     
+    with st.sidebar:
+        st.markdown("### Control Panel")
+        if st.button("Log Out"):
+            st.session_state.clear()
+            st.rerun()
+        
+        st.markdown("---")
+        st.error("🚨 Danger Zone")
+        if st.button("HARD RESTART GAME"):
+            with st.spinner("Wiping Database..."):
+                supabase.table('game_state').update({'current_week': 1, 'status': 'lobby'}).eq('id', 1).execute()
+                supabase.table('pending_decisions').delete().neq('team_id', 0).execute()
+                supabase.table('ledger').delete().neq('team_id', 0).execute()
+                for i in range(1, 11):
+                    supabase.table('team_state').update({
+                        'cash': 5000000, 'debt': 0, 'quality_index': 1.0, 'metal_qty': 5000, 'plastic_qty': 10000,
+                        'heavy_qty': 500, 'light_qty': 500, 'east_heavy_qty': 1000, 'east_light_qty': 1000,
+                        'west_heavy_qty': 1000, 'west_light_qty': 1000, 'transit_pipeline': '[]', 'last_revenue': 0,
+                        'wasted_materials': 0, 'fac_hours': 5000, 'raw_wh': 40000, 'hub_east_cap': 5000, 'hub_west_cap': 5000, 'transit_limit': 5000
+                    }).eq('team_id', i).execute()
+            st.success("Simulation Reset to Week 1 Lobby.")
+            st.rerun()
+    
     st.markdown(f"### Current Week: {current_week} | Status: {status.upper()}")
     
     if status == 'lobby':
-        st.warning("The game is currently in the Lobby. Students cannot submit decisions yet.")
         st.markdown("<div class='dash-panel'>", unsafe_allow_html=True)
-        st.markdown("### Simulation Initialization")
-        selected_teams = st.number_input("Number of Participating Teams", min_value=2, max_value=10, value=total_teams)
-        if st.button("Start Game", type="primary"):
+        st.subheader("Simulation Lobby Initialization")
+        st.write("The game is currently locked. Students cannot submit decisions until the instructor starts the simulation.")
+        selected_teams = st.slider("Select Number of Participating Teams", min_value=2, max_value=10, value=total_teams)
+        if st.button("Launch Simulation", type="primary"):
             supabase.table('game_state').update({'status': 'active', 'total_teams': selected_teams}).eq('id', 1).execute()
             st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
@@ -438,7 +462,7 @@ if st.session_state.role == 'instructor':
 
                     supabase.table('team_state').update({
                         'cash': state['cash'], 'debt': state['debt'], 'quality_index': state['quality_index'],
-                        'wasted_materials': state['wasted_materials'], 'has_intel': state['has_intel'],
+                        'wasted_materials': state['wasted_materials'], 'has_intel': state['has_intel'], 'last_revenue': revenue,
                         'fac_hours': state['fac_hours'], 'raw_wh': state['raw_wh'], 
                         'hub_east_cap': state['hub_east_cap'], 'hub_west_cap': state['hub_west_cap'], 'transit_limit': state['transit_limit'],
                         'metal_qty': state['metal_qty'], 'plastic_qty': state['plastic_qty'], 
@@ -484,7 +508,7 @@ if st.session_state.role == 'team':
         
     if status == 'lobby':
         st.warning("The Instructor has not started the simulation yet. Please wait in the lobby.")
-        if st.button("Refresh"): st.rerun()
+        if st.button("Refresh Status"): st.rerun()
         st.stop()
         
     if status == 'game_over' or state['debt'] > MAX_DEBT:
@@ -589,28 +613,30 @@ if st.session_state.role == 'team':
         st.markdown(f"<div style='color: #a1a1aa; margin-bottom:15px;'>Week {current_week} / {MAX_WEEKS}</div>", unsafe_allow_html=True)
         
         with st.form("decision_form"):
-            with st.expander("1. Pricing", expanded=True):
+            with st.expander("1. Pricing Strategy", expanded=True):
                 price_heavy = st.slider("Heavy Price ($)", 100, 300, 150, step=5)
                 price_light = st.slider("Light Price ($)", 50, 150, 80, step=5)
             
-            with st.expander("2. Investment"):
+            with st.expander("2. R&D and Marketing"):
                 rd_spend = st.number_input("R&D Investment ($)", min_value=0, step=10000, value=0)
                 mkt_e = st.number_input("Mkt Spend (East Hub)", min_value=0, step=5000, value=10000)
                 mkt_w = st.number_input("Mkt Spend (West Hub)", min_value=0, step=5000, value=10000)
                 buy_intel = st.checkbox("Buy Market Intel ($25k)", value=True)
             
             with st.expander("3. Procurement & Production"):
-                proc_mode = st.selectbox("Freight Mode", ["Standard (1 Wk)", "Economy (2 Wks)", "Express (Instant)"])
+                proc_mode = st.selectbox("Freight Mode (Inbound)", ["Standard (1 Wk)", "Economy (2 Wks)", "Express (Instant)"])
                 buy_metal = st.number_input(f"Order Metal (${env_cost_met})", min_value=0, step=500, value=0)
                 buy_plastic = st.number_input(f"Order Plastic (${env_cost_pla})", min_value=0, step=500, value=0)
                 make_heavy = st.number_input("Produce Heavy", min_value=0, step=100, value=500)
                 make_light = st.number_input("Produce Light", min_value=0, step=100, value=800)
             
             with st.expander("4. Outbound Shipping"):
+                st.caption("To East Hub")
                 e_mode = st.selectbox("East Freight Mode", ["Standard (1 Wk)", "Economy (2 Wks)", "Express (Instant)"])
                 col1, col2 = st.columns(2)
                 ship_east_heavy = col1.number_input("Heavy (E)", min_value=0, step=100, value=250)
                 ship_east_light = col2.number_input("Light (E)", min_value=0, step=100, value=400)
+                st.caption("To West Hub")
                 w_mode = st.selectbox("West Freight Mode", ["Standard (1 Wk)", "Economy (2 Wks)", "Express (Instant)"])
                 col3, col4 = st.columns(2)
                 ship_west_heavy = col3.number_input("Heavy (W)", min_value=0, step=100, value=250)
