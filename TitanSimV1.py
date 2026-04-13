@@ -71,6 +71,11 @@ FREIGHT_RATES = {
     'Express (Instant)': {'FTL': 4000, 'LTL': 6.00, 'base_lead': 0, 'reliability': 0.99}
 }
 
+GREEK_TEAMS = {
+    1: "Alpha", 2: "Beta", 3: "Gamma", 4: "Delta", 5: "Epsilon",
+    6: "Zeta", 7: "Eta", 8: "Theta", 9: "Iota", 10: "Kappa"
+}
+
 def calc_freight(qty, mode):
     if qty <= 0: return 0
     ftls = qty // TRUCK_CAPACITY
@@ -143,7 +148,9 @@ if st.session_state.role is None:
         login_type = st.selectbox("Login As:", ["Student Team", "Instructor"])
         
         if login_type == "Student Team":
-            t_id = st.selectbox("Select Team", range(1, 11))
+            team_options = [f"{i} - Team {GREEK_TEAMS[i]}" for i in range(1, 11)]
+            t_selection = st.selectbox("Select Competitor Profile", team_options)
+            t_id = int(t_selection.split(" ")[0])
             pwd = st.text_input("Password", type="password")
             if st.button("Login", use_container_width=True):
                 res = supabase.table('teams').select('password').eq('id', t_id).execute()
@@ -175,9 +182,21 @@ if st.session_state.role == 'instructor':
     game_state = fetch_game_state()
     current_week = game_state['current_week']
     status = game_state['status']
+    total_teams = game_state.get('total_teams', 10)
     
     st.markdown(f"### Current Week: {current_week} | Status: {status.upper()}")
     
+    if status == 'lobby':
+        st.warning("The game is currently in the Lobby. Students cannot submit decisions yet.")
+        st.markdown("<div class='dash-panel'>", unsafe_allow_html=True)
+        st.markdown("### Simulation Initialization")
+        selected_teams = st.number_input("Number of Participating Teams", min_value=2, max_value=10, value=total_teams)
+        if st.button("Start Game", type="primary"):
+            supabase.table('game_state').update({'status': 'active', 'total_teams': selected_teams}).eq('id', 1).execute()
+            st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+        st.stop()
+
     if status == 'game_over':
         st.error("The simulation has concluded.")
         st.stop()
@@ -185,268 +204,269 @@ if st.session_state.role == 'instructor':
     subs = supabase.table('pending_decisions').select('team_id').eq('week', current_week).execute().data
     sub_ids = [s['team_id'] for s in subs]
     
-    st.write(f"**Teams Ready: {len(sub_ids)} / 10**")
-    cols = st.columns(10)
-    for i in range(1, 11):
+    st.write(f"**Teams Ready: {len(sub_ids)} / {total_teams}**")
+    cols = st.columns(total_teams)
+    for i in range(1, total_teams + 1):
         color = "🟢 Ready" if i in sub_ids else "🔴 Waiting"
-        cols[i-1].markdown(f"<div style='font-size:12px; text-align:center;'>Team {i}<br>{color}</div>", unsafe_allow_html=True)
+        cols[i-1].markdown(f"<div style='font-size:12px; text-align:center;'>{GREEK_TEAMS[i]}<br>{color}</div>", unsafe_allow_html=True)
     
     st.markdown("---")
     
-    if st.button("Process Turn for All Teams", type="primary"):
-        with st.spinner("Processing Global Market Engine..."):
-            all_decs = supabase.table('pending_decisions').select('*').eq('week', current_week).execute().data
-            if len(all_decs) == 0:
-                st.error("No teams have submitted data!")
-                st.stop()
-                
-            env_mkt_h, env_mkt_l, env_cost_met, env_cost_pla, _, _ = get_environment(current_week)
-            
-            team_states = {}
-            for t in range(1, 11):
-                team_states[t] = fetch_team_state(t)
-            
-            utilities = {}
-            total_u_h, total_u_l = 0, 0
-            
-            # PASS 1: Calculate Global Utility Denominators
-            for dec in all_decs:
-                tid = dec['team_id']
-                state = team_states[tid]
-                
-                # Apply CAPEX & Fin
-                if dec['net_fin'] < 0:
-                    repay = min(abs(dec['net_fin']), state['debt'])
-                    state['debt'] -= repay
-                    state['cash'] -= repay
-                else:
-                    state['debt'] += dec['net_fin']
-                    state['cash'] += dec['net_fin']
+    col_run, col_stop = st.columns(2)
+    with col_run:
+        if st.button("Process Turn for All Teams", type="primary", use_container_width=True):
+            with st.spinner("Processing Global Market Engine..."):
+                all_decs = supabase.table('pending_decisions').select('*').eq('week', current_week).execute().data
+                if len(all_decs) == 0:
+                    st.error("No teams have submitted data!")
+                    st.stop()
                     
-                capex = (dec['cap_prod']*CAPEX_COST_PROD) + (dec['cap_wh']*CAPEX_COST_WAREHOUSE) + (dec['cap_he']*CAPEX_COST_HUB) + (dec['cap_hw']*CAPEX_COST_HUB) + (dec['cap_tr']*CAPEX_COST_TRANSIT)
-                state['cash'] -= capex
-                state['fac_hours'] += dec['cap_prod']
-                state['raw_wh'] += dec['cap_wh']
-                state['hub_east_cap'] += dec['cap_he']
-                state['hub_west_cap'] += dec['cap_hw']
-                state['transit_limit'] += dec['cap_tr']
+                env_mkt_h, env_mkt_l, env_cost_met, env_cost_pla, _, _ = get_environment(current_week)
                 
-                state['quality_index'] = float(state['quality_index']) + (dec['rd_spend'] / 250_000.0)
-                state['has_intel'] = dec['buy_intel']
+                team_states = {}
+                for t in range(1, total_teams + 1):
+                    team_states[t] = fetch_team_state(t)
                 
-                u_h = math.exp(-1.5 * (dec['price_h']/100) + 0.3 * math.log(max(dec['mkt_e']+dec['mkt_w'], 1)) + 1.2 * state['quality_index'])
-                u_l = math.exp(-2.5 * (dec['price_l']/100) + 0.2 * math.log(max(dec['mkt_e']+dec['mkt_w'], 1)) + 0.8 * state['quality_index'])
+                utilities = {}
+                total_u_h, total_u_l = 0, 0
                 
-                utilities[tid] = {'u_h': u_h, 'u_l': u_l, 'dec': dec, 'state': state, 'capex': capex}
-                total_u_h += u_h
-                total_u_l += u_l
-                
-            # PASS 2: Execute Logistics, Manufacturing, and Sales
-            for tid, data in utilities.items():
-                dec = data['dec']
-                state = data['state']
-                
-                # Parse transit pipeline
-                transit = state['transit_pipeline'] if isinstance(state['transit_pipeline'], list) else json.loads(state['transit_pipeline'])
-                still_in_transit = []
-                
-                # Arriving goods
-                for t in transit:
-                    t['weeks_left'] -= 1
-                    if t['weeks_left'] <= 0:
-                        if t['type'] == 'raw':
-                            current_raw = state['metal_qty'] + state['plastic_qty']
-                            space_left = state['raw_wh'] - current_raw
-                            incoming = t['metal'] + t['plastic']
-                            if incoming > space_left:
-                                ratio = space_left / incoming if incoming > 0 else 0
-                                state['metal_qty'] += int(t['metal'] * ratio)
-                                state['plastic_qty'] += int(t['plastic'] * ratio)
-                                state['wasted_materials'] += (incoming - space_left)
-                            else:
-                                state['metal_qty'] += t['metal']
-                                state['plastic_qty'] += t['plastic']
-                        elif t['type'] == 'finished_east':
-                            current_e = state['east_heavy_qty'] + state['east_light_qty']
-                            space_left = state['hub_east_cap'] - current_e
-                            incoming = t['heavy'] + t['light']
-                            if incoming > space_left:
-                                ratio = space_left / incoming if incoming > 0 else 0
-                                state['east_heavy_qty'] += int(t['heavy'] * ratio)
-                                state['east_light_qty'] += int(t['light'] * ratio)
-                            else:
-                                state['east_heavy_qty'] += t['heavy']
-                                state['east_light_qty'] += t['light']
-                        elif t['type'] == 'finished_west':
-                            current_w = state['west_heavy_qty'] + state['west_light_qty']
-                            space_left = state['hub_west_cap'] - current_w
-                            incoming = t['heavy'] + t['light']
-                            if incoming > space_left:
-                                ratio = space_left / incoming if incoming > 0 else 0
-                                state['west_heavy_qty'] += int(t['heavy'] * ratio)
-                                state['west_light_qty'] += int(t['light'] * ratio)
-                            else:
-                                state['west_heavy_qty'] += t['heavy']
-                                state['west_light_qty'] += t['light']
+                # PASS 1: Calculate Global Utility Denominators
+                for dec in all_decs:
+                    tid = dec['team_id']
+                    if tid > total_teams: continue
+                    state = team_states[tid]
+                    
+                    if dec['net_fin'] < 0:
+                        repay = min(abs(dec['net_fin']), state['debt'])
+                        state['debt'] -= repay
+                        state['cash'] -= repay
                     else:
-                        still_in_transit.append(t)
-                
-                # New Procurements
-                proc_lead = get_actual_lead_time(dec['proc_mode'])
-                proc_freight_cost = calc_freight(dec['buy_metal'] + dec['buy_plastic'], dec['proc_mode'])
-                mat_costs = (dec['buy_metal'] * env_cost_met) + (dec['buy_plastic'] * env_cost_pla)
-                
-                if proc_lead == 0 and (dec['buy_metal'] > 0 or dec['buy_plastic'] > 0): 
-                    state['metal_qty'] += dec['buy_metal']
-                    state['plastic_qty'] += dec['buy_plastic']
-                elif dec['buy_metal'] > 0 or dec['buy_plastic'] > 0:
-                    still_in_transit.append({'type': 'raw', 'metal': dec['buy_metal'], 'plastic': dec['buy_plastic'], 'weeks_left': proc_lead})
-
-                # Manufacturing
-                hours_available = state['fac_hours']
-                mat_limit_heavy = min(state['metal_qty'] // 2, state['plastic_qty'] // 2)
-                req_heavy = min(dec['make_heavy'], mat_limit_heavy)
-                
-                if req_heavy * 2 <= hours_available:
-                    actual_p_h = req_heavy
-                    hours_available -= (actual_p_h * 2)
-                else:
-                    actual_p_h = hours_available // 2
-                    hours_available -= (actual_p_h * 2)
+                        state['debt'] += dec['net_fin']
+                        state['cash'] += dec['net_fin']
+                        
+                    capex = (dec['cap_prod']*CAPEX_COST_PROD) + (dec['cap_wh']*CAPEX_COST_WAREHOUSE) + (dec['cap_he']*CAPEX_COST_HUB) + (dec['cap_hw']*CAPEX_COST_HUB) + (dec['cap_tr']*CAPEX_COST_TRANSIT)
+                    state['cash'] -= capex
+                    state['fac_hours'] += dec['cap_prod']
+                    state['raw_wh'] += dec['cap_wh']
+                    state['hub_east_cap'] += dec['cap_he']
+                    state['hub_west_cap'] += dec['cap_hw']
+                    state['transit_limit'] += dec['cap_tr']
                     
-                state['metal_qty'] -= (actual_p_h * 2)
-                state['plastic_qty'] -= (actual_p_h * 2)
-                state['heavy_qty'] += actual_p_h
-                
-                mat_limit_light = state['plastic_qty'] // 3
-                req_light = min(dec['make_light'], mat_limit_light)
-                
-                if req_light * 1 <= hours_available:
-                    actual_p_l = req_light
-                    hours_available -= actual_p_l
-                else:
-                    actual_p_l = hours_available
-                    hours_available -= actual_p_l
+                    state['quality_index'] = float(state['quality_index']) + (dec['rd_spend'] / 250_000.0)
+                    state['has_intel'] = dec['buy_intel']
                     
-                state['plastic_qty'] -= (actual_p_l * 3)
-                state['light_qty'] += actual_p_l
-                state['last_prod_heavy'] = actual_p_h
-                state['last_prod_light'] = actual_p_l
-                state['last_hours_used'] = state['fac_hours'] - hours_available
+                    u_h = math.exp(-1.5 * (dec['price_h']/100) + 0.3 * math.log(max(dec['mkt_e']+dec['mkt_w'], 1)) + 1.2 * state['quality_index'])
+                    u_l = math.exp(-2.5 * (dec['price_l']/100) + 0.2 * math.log(max(dec['mkt_e']+dec['mkt_w'], 1)) + 0.8 * state['quality_index'])
+                    
+                    utilities[tid] = {'u_h': u_h, 'u_l': u_l, 'dec': dec, 'state': state, 'capex': capex}
+                    total_u_h += u_h
+                    total_u_l += u_l
+                    
+                # PASS 2: Execute Logistics, Manufacturing, and Sales
+                for tid, data in utilities.items():
+                    dec = data['dec']
+                    state = data['state']
+                    
+                    transit = state['transit_pipeline'] if isinstance(state['transit_pipeline'], list) else json.loads(state['transit_pipeline'])
+                    still_in_transit = []
+                    
+                    for t in transit:
+                        t['weeks_left'] -= 1
+                        if t['weeks_left'] <= 0:
+                            if t['type'] == 'raw':
+                                current_raw = state['metal_qty'] + state['plastic_qty']
+                                space_left = state['raw_wh'] - current_raw
+                                incoming = t['metal'] + t['plastic']
+                                if incoming > space_left:
+                                    ratio = space_left / incoming if incoming > 0 else 0
+                                    state['metal_qty'] += int(t['metal'] * ratio)
+                                    state['plastic_qty'] += int(t['plastic'] * ratio)
+                                    state['wasted_materials'] += (incoming - space_left)
+                                else:
+                                    state['metal_qty'] += t['metal']
+                                    state['plastic_qty'] += t['plastic']
+                            elif t['type'] == 'finished_east':
+                                current_e = state['east_heavy_qty'] + state['east_light_qty']
+                                space_left = state['hub_east_cap'] - current_e
+                                incoming = t['heavy'] + t['light']
+                                if incoming > space_left:
+                                    ratio = space_left / incoming if incoming > 0 else 0
+                                    state['east_heavy_qty'] += int(t['heavy'] * ratio)
+                                    state['east_light_qty'] += int(t['light'] * ratio)
+                                else:
+                                    state['east_heavy_qty'] += t['heavy']
+                                    state['east_light_qty'] += t['light']
+                            elif t['type'] == 'finished_west':
+                                current_w = state['west_heavy_qty'] + state['west_light_qty']
+                                space_left = state['hub_west_cap'] - current_w
+                                incoming = t['heavy'] + t['light']
+                                if incoming > space_left:
+                                    ratio = space_left / incoming if incoming > 0 else 0
+                                    state['west_heavy_qty'] += int(t['heavy'] * ratio)
+                                    state['west_light_qty'] += int(t['light'] * ratio)
+                                else:
+                                    state['west_heavy_qty'] += t['heavy']
+                                    state['west_light_qty'] += t['light']
+                        else:
+                            still_in_transit.append(t)
+                    
+                    proc_lead = get_actual_lead_time(dec['proc_mode'])
+                    proc_freight_cost = calc_freight(dec['buy_metal'] + dec['buy_plastic'], dec['proc_mode'])
+                    mat_costs = (dec['buy_metal'] * env_cost_met) + (dec['buy_plastic'] * env_cost_pla)
+                    
+                    if proc_lead == 0 and (dec['buy_metal'] > 0 or dec['buy_plastic'] > 0): 
+                        state['metal_qty'] += dec['buy_metal']
+                        state['plastic_qty'] += dec['buy_plastic']
+                    elif dec['buy_metal'] > 0 or dec['buy_plastic'] > 0:
+                        still_in_transit.append({'type': 'raw', 'metal': dec['buy_metal'], 'plastic': dec['buy_plastic'], 'weeks_left': proc_lead})
 
-                # Outbound Shipping
-                transit_cap = state['transit_limit']
-                total_east_req = dec['ship_east_heavy'] + dec['ship_east_light']
-                if total_east_req > transit_cap:
-                    ratio_e = transit_cap / total_east_req
-                    actual_s_e_h = int(dec['ship_east_heavy'] * ratio_e)
-                    actual_s_e_l = int(dec['ship_east_light'] * ratio_e)
-                else:
-                    actual_s_e_h, actual_s_e_l = dec['ship_east_heavy'], dec['ship_east_light']
+                    hours_available = state['fac_hours']
+                    mat_limit_heavy = min(state['metal_qty'] // 2, state['plastic_qty'] // 2)
+                    req_heavy = min(dec['make_heavy'], mat_limit_heavy)
+                    
+                    if req_heavy * 2 <= hours_available:
+                        actual_p_h = req_heavy
+                        hours_available -= (actual_p_h * 2)
+                    else:
+                        actual_p_h = hours_available // 2
+                        hours_available -= (actual_p_h * 2)
+                        
+                    state['metal_qty'] -= (actual_p_h * 2)
+                    state['plastic_qty'] -= (actual_p_h * 2)
+                    state['heavy_qty'] += actual_p_h
+                    
+                    mat_limit_light = state['plastic_qty'] // 3
+                    req_light = min(dec['make_light'], mat_limit_light)
+                    
+                    if req_light * 1 <= hours_available:
+                        actual_p_l = req_light
+                        hours_available -= actual_p_l
+                    else:
+                        actual_p_l = hours_available
+                        hours_available -= actual_p_l
+                        
+                    state['plastic_qty'] -= (actual_p_l * 3)
+                    state['light_qty'] += actual_p_l
+                    state['last_prod_heavy'] = actual_p_h
+                    state['last_prod_light'] = actual_p_l
+                    state['last_hours_used'] = state['fac_hours'] - hours_available
 
-                total_west_req = dec['ship_west_heavy'] + dec['ship_west_light']
-                if total_west_req > transit_cap:
-                    ratio_w = transit_cap / total_west_req
-                    actual_s_w_h = int(dec['ship_west_heavy'] * ratio_w)
-                    actual_s_w_l = int(dec['ship_west_light'] * ratio_w)
-                else:
-                    actual_s_w_h, actual_s_w_l = dec['ship_west_heavy'], dec['ship_west_light']
+                    transit_cap = state['transit_limit']
+                    total_east_req = dec['ship_east_heavy'] + dec['ship_east_light']
+                    if total_east_req > transit_cap:
+                        ratio_e = transit_cap / total_east_req
+                        actual_s_e_h = int(dec['ship_east_heavy'] * ratio_e)
+                        actual_s_e_l = int(dec['ship_east_light'] * ratio_e)
+                    else:
+                        actual_s_e_h, actual_s_e_l = dec['ship_east_heavy'], dec['ship_east_light']
 
-                actual_s_e_h = min(actual_s_e_h, state['heavy_qty'])
-                state['heavy_qty'] -= actual_s_e_h
-                actual_s_w_h = min(actual_s_w_h, state['heavy_qty'])
-                state['heavy_qty'] -= actual_s_w_h
-                
-                actual_s_e_l = min(actual_s_e_l, state['light_qty'])
-                state['light_qty'] -= actual_s_e_l
-                actual_s_w_l = min(actual_s_w_l, state['light_qty'])
-                state['light_qty'] -= actual_s_w_l
+                    total_west_req = dec['ship_west_heavy'] + dec['ship_west_light']
+                    if total_west_req > transit_cap:
+                        ratio_w = transit_cap / total_west_req
+                        actual_s_w_h = int(dec['ship_west_heavy'] * ratio_w)
+                        actual_s_w_l = int(dec['ship_west_light'] * ratio_w)
+                    else:
+                        actual_s_w_h, actual_s_w_l = dec['ship_west_heavy'], dec['ship_west_light']
 
-                lead_e = get_actual_lead_time(dec['e_mode'])
-                cost_e = calc_freight(actual_s_e_h + actual_s_e_l, dec['e_mode'])
-                if lead_e == 0 and (actual_s_e_h > 0 or actual_s_e_l > 0):
-                    state['east_heavy_qty'] += actual_s_e_h
-                    state['east_light_qty'] += actual_s_e_l
-                elif actual_s_e_h > 0 or actual_s_e_l > 0:
-                    still_in_transit.append({'type': 'finished_east', 'heavy': actual_s_e_h, 'light': actual_s_e_l, 'weeks_left': lead_e})
+                    actual_s_e_h = min(actual_s_e_h, state['heavy_qty'])
+                    state['heavy_qty'] -= actual_s_e_h
+                    actual_s_w_h = min(actual_s_w_h, state['heavy_qty'])
+                    state['heavy_qty'] -= actual_s_w_h
+                    
+                    actual_s_e_l = min(actual_s_e_l, state['light_qty'])
+                    state['light_qty'] -= actual_s_e_l
+                    actual_s_w_l = min(actual_s_w_l, state['light_qty'])
+                    state['light_qty'] -= actual_s_w_l
 
-                lead_w = get_actual_lead_time(dec['w_mode'])
-                cost_w = calc_freight(actual_s_w_h + actual_s_w_l, dec['w_mode'])
-                if lead_w == 0 and (actual_s_w_h > 0 or actual_s_w_l > 0):
-                    state['west_heavy_qty'] += actual_s_w_h
-                    state['west_light_qty'] += actual_s_w_l
-                elif actual_s_w_h > 0 or actual_s_w_l > 0:
-                    still_in_transit.append({'type': 'finished_west', 'heavy': actual_s_w_h, 'light': actual_s_w_l, 'weeks_left': lead_w})
+                    lead_e = get_actual_lead_time(dec['e_mode'])
+                    cost_e = calc_freight(actual_s_e_h + actual_s_e_l, dec['e_mode'])
+                    if lead_e == 0 and (actual_s_e_h > 0 or actual_s_e_l > 0):
+                        state['east_heavy_qty'] += actual_s_e_h
+                        state['east_light_qty'] += actual_s_e_l
+                    elif actual_s_e_h > 0 or actual_s_e_l > 0:
+                        still_in_transit.append({'type': 'finished_east', 'heavy': actual_s_e_h, 'light': actual_s_e_l, 'weeks_left': lead_e})
 
-                total_ship_costs = proc_freight_cost + cost_e + cost_w
-                state['transit_pipeline'] = still_in_transit
+                    lead_w = get_actual_lead_time(dec['w_mode'])
+                    cost_w = calc_freight(actual_s_w_h + actual_s_w_l, dec['w_mode'])
+                    if lead_w == 0 and (actual_s_w_h > 0 or actual_s_w_l > 0):
+                        state['west_heavy_qty'] += actual_s_w_h
+                        state['west_light_qty'] += actual_s_w_l
+                    elif actual_s_w_h > 0 or actual_s_w_l > 0:
+                        still_in_transit.append({'type': 'finished_west', 'heavy': actual_s_w_h, 'light': actual_s_w_l, 'weeks_left': lead_w})
 
-                # Sales (The Multiplayer Clash)
-                share_h = data['u_h'] / total_u_h if total_u_h > 0 else 0
-                share_l = data['u_l'] / total_u_l if total_u_l > 0 else 0
-                
-                demand_h = int(env_mkt_h * share_h)
-                demand_l = int(env_mkt_l * share_l)
-                
-                sold_e_h = min(int(demand_h/2), state['east_heavy_qty'])
-                sold_e_l = min(int(demand_l/2), state['east_light_qty'])
-                sold_w_h = min(int(demand_h/2), state['west_heavy_qty'])
-                sold_w_l = min(int(demand_l/2), state['west_light_qty'])
-                
-                state['east_heavy_qty'] -= sold_e_h
-                state['east_light_qty'] -= sold_e_l
-                state['west_heavy_qty'] -= sold_w_h
-                state['west_light_qty'] -= sold_w_l
-                
-                revenue = (sold_e_h + sold_w_h) * dec['price_h'] + (sold_e_l + sold_w_l) * dec['price_l']
-                lost_sales_h = max(0, demand_h - (sold_e_h + sold_w_h))
-                lost_sales_l = max(0, demand_l - (sold_e_l + sold_w_l))
-                lost_revenue = (lost_sales_h * dec['price_h']) + (lost_sales_l * dec['price_l'])
-                
-                state['cash'] += revenue
-                
-                holding_costs = ((state['east_heavy_qty'] + state['east_light_qty'] + state['west_heavy_qty'] + state['west_light_qty']) * COST_HOLDING_FG) + \
-                                ((state['metal_qty'] + state['plastic_qty']) * COST_HOLDING_RAW)
+                    total_ship_costs = proc_freight_cost + cost_e + cost_w
+                    state['transit_pipeline'] = still_in_transit
 
-                intel_cost = COST_INTEL if dec['buy_intel'] else 0
-                interest = state['debt'] * INTEREST_RATE
-                expenses = COST_OVERHEAD + mat_costs + total_ship_costs + holding_costs + dec['mkt_e'] + dec['mkt_w'] + dec['rd_spend'] + interest + intel_cost
-                
-                state['cash'] -= expenses
-                
-                if state['cash'] < 0:
-                    emergency_amt = abs(state['cash'])
-                    penalty = emergency_amt * EMERGENCY_PENALTY
-                    state['debt'] += (emergency_amt + penalty)
-                    state['cash'] = 0
+                    # Sales
+                    share_h = data['u_h'] / total_u_h if total_u_h > 0 else 0
+                    share_l = data['u_l'] / total_u_l if total_u_l > 0 else 0
+                    
+                    demand_h = int(env_mkt_h * share_h)
+                    demand_l = int(env_mkt_l * share_l)
+                    
+                    sold_e_h = min(int(demand_h/2), state['east_heavy_qty'])
+                    sold_e_l = min(int(demand_l/2), state['east_light_qty'])
+                    sold_w_h = min(int(demand_h/2), state['west_heavy_qty'])
+                    sold_w_l = min(int(demand_l/2), state['west_light_qty'])
+                    
+                    state['east_heavy_qty'] -= sold_e_h
+                    state['east_light_qty'] -= sold_e_l
+                    state['west_heavy_qty'] -= sold_w_h
+                    state['west_light_qty'] -= sold_w_l
+                    
+                    revenue = (sold_e_h + sold_w_h) * dec['price_h'] + (sold_e_l + sold_w_l) * dec['price_l']
+                    lost_sales_h = max(0, demand_h - (sold_e_h + sold_w_h))
+                    lost_sales_l = max(0, demand_l - (sold_e_l + sold_w_l))
+                    lost_revenue = (lost_sales_h * dec['price_h']) + (lost_sales_l * dec['price_l'])
+                    
+                    state['cash'] += revenue
+                    
+                    holding_costs = ((state['east_heavy_qty'] + state['east_light_qty'] + state['west_heavy_qty'] + state['west_light_qty']) * COST_HOLDING_FG) + \
+                                    ((state['metal_qty'] + state['plastic_qty']) * COST_HOLDING_RAW)
 
-                # Update Database
-                supabase.table('team_state').update({
-                    'cash': state['cash'], 'debt': state['debt'], 'quality_index': state['quality_index'],
-                    'wasted_materials': state['wasted_materials'], 'has_intel': state['has_intel'],
-                    'fac_hours': state['fac_hours'], 'raw_wh': state['raw_wh'], 
-                    'hub_east_cap': state['hub_east_cap'], 'hub_west_cap': state['hub_west_cap'], 'transit_limit': state['transit_limit'],
-                    'metal_qty': state['metal_qty'], 'plastic_qty': state['plastic_qty'], 
-                    'heavy_qty': state['heavy_qty'], 'light_qty': state['light_qty'],
-                    'east_heavy_qty': state['east_heavy_qty'], 'east_light_qty': state['east_light_qty'],
-                    'west_heavy_qty': state['west_heavy_qty'], 'west_light_qty': state['west_light_qty'],
-                    'transit_pipeline': state['transit_pipeline'],
-                    'last_prod_heavy': state['last_prod_heavy'], 'last_prod_light': state['last_prod_light'],
-                    'last_hours_used': state['last_hours_used']
-                }).eq('team_id', tid).execute()
+                    intel_cost = COST_INTEL if dec['buy_intel'] else 0
+                    interest = state['debt'] * INTEREST_RATE
+                    expenses = COST_OVERHEAD + mat_costs + total_ship_costs + holding_costs + dec['mkt_e'] + dec['mkt_w'] + dec['rd_spend'] + interest + intel_cost
+                    
+                    state['cash'] -= expenses
+                    
+                    if state['cash'] < 0:
+                        emergency_amt = abs(state['cash'])
+                        penalty = emergency_amt * EMERGENCY_PENALTY
+                        state['debt'] += (emergency_amt + penalty)
+                        state['cash'] = 0
+
+                    supabase.table('team_state').update({
+                        'cash': state['cash'], 'debt': state['debt'], 'quality_index': state['quality_index'],
+                        'wasted_materials': state['wasted_materials'], 'has_intel': state['has_intel'],
+                        'fac_hours': state['fac_hours'], 'raw_wh': state['raw_wh'], 
+                        'hub_east_cap': state['hub_east_cap'], 'hub_west_cap': state['hub_west_cap'], 'transit_limit': state['transit_limit'],
+                        'metal_qty': state['metal_qty'], 'plastic_qty': state['plastic_qty'], 
+                        'heavy_qty': state['heavy_qty'], 'light_qty': state['light_qty'],
+                        'east_heavy_qty': state['east_heavy_qty'], 'east_light_qty': state['east_light_qty'],
+                        'west_heavy_qty': state['west_heavy_qty'], 'west_light_qty': state['west_light_qty'],
+                        'transit_pipeline': state['transit_pipeline'],
+                        'last_prod_heavy': state['last_prod_heavy'], 'last_prod_light': state['last_prod_light'],
+                        'last_hours_used': state['last_hours_used']
+                    }).eq('team_id', tid).execute()
+                    
+                    supabase.table('ledger').insert({
+                        'team_id': tid, 'week': current_week,
+                        'revenue': revenue, 'materials': mat_costs, 'shipping': total_ship_costs, 'holding': holding_costs,
+                        'marketing': dec['mkt_e'] + dec['mkt_w'] + intel_cost, 'rd': dec['rd_spend'], 'overhead': COST_OVERHEAD,
+                        'interest': interest, 'capex': data['capex'], 'total_exp': expenses + data['capex'],
+                        'lost_sales': lost_revenue, 'cash': state['cash'], 'debt': state['debt']
+                    }).execute()
+                    
+                new_week = current_week + 1
+                new_status = 'active' if new_week <= MAX_WEEKS else 'game_over'
+                supabase.table('game_state').update({'current_week': new_week, 'status': new_status}).eq('id', 1).execute()
+                st.success("Turn Processed! Week Advanced.")
+                st.rerun()
                 
-                supabase.table('ledger').insert({
-                    'team_id': tid, 'week': current_week,
-                    'revenue': revenue, 'materials': mat_costs, 'shipping': total_ship_costs, 'holding': holding_costs,
-                    'marketing': dec['mkt_e'] + dec['mkt_w'] + intel_cost, 'rd': dec['rd_spend'], 'overhead': COST_OVERHEAD,
-                    'interest': interest, 'capex': data['capex'], 'total_exp': expenses + data['capex'],
-                    'lost_sales': lost_revenue, 'cash': state['cash'], 'debt': state['debt']
-                }).execute()
-                
-            new_week = current_week + 1
-            new_status = 'active' if new_week <= MAX_WEEKS else 'game_over'
-            supabase.table('game_state').update({'current_week': new_week, 'status': new_status}).eq('id', 1).execute()
-            st.success("Turn Processed! Week Advanced.")
+    with col_stop:
+        if st.button("Stop/End Game Now", use_container_width=True):
+            supabase.table('game_state').update({'status': 'game_over'}).eq('id', 1).execute()
             st.rerun()
 
 # --- STUDENT TEAM DASHBOARD ---
@@ -454,15 +474,20 @@ if st.session_state.role == 'team':
     tid = st.session_state.team_id
     game_state = fetch_game_state()
     current_week = game_state['current_week']
+    status = game_state['status']
     state = fetch_team_state(tid)
     
-    st.sidebar.markdown(f"<h2>Team {tid}</h2>", unsafe_allow_html=True)
+    st.sidebar.markdown(f"<h2>Team {GREEK_TEAMS[tid]}</h2>", unsafe_allow_html=True)
     if st.sidebar.button("Log Out"):
         st.session_state.clear()
         st.rerun()
         
-    if game_state['status'] == 'game_over' or state['debt'] > MAX_DEBT:
-        # END OF GAME REPORT
+    if status == 'lobby':
+        st.warning("The Instructor has not started the simulation yet. Please wait in the lobby.")
+        if st.button("Refresh"): st.rerun()
+        st.stop()
+        
+    if status == 'game_over' or state['debt'] > MAX_DEBT:
         st.markdown("<h1 style='text-align: center; margin-bottom: 0;'>End of Term: Executive Summary Report</h1>", unsafe_allow_html=True)
         if state['debt'] > MAX_DEBT:
             st.markdown("<h3 style='text-align: center; color: #ef4444;'>STATUS: INSOLVENT (MAXIMUM DEBT EXCEEDED)</h3>", unsafe_allow_html=True)
@@ -545,7 +570,7 @@ if st.session_state.role == 'team':
             col_dl, _ = st.columns([1, 4])
             with col_dl:
                 csv_data = convert_df_to_csv(df)
-                st.download_button("Download CSV Audit", data=csv_data, file_name=f'team_{tid}_ledger.csv', mime='text/csv', use_container_width=True)
+                st.download_button("Download CSV Audit", data=csv_data, file_name=f'team_{GREEK_TEAMS[tid]}_ledger.csv', mime='text/csv', use_container_width=True)
             st.dataframe(df.set_index('week'), use_container_width=True)
         st.markdown("</div>", unsafe_allow_html=True)
         st.stop()
@@ -564,41 +589,42 @@ if st.session_state.role == 'team':
         st.markdown(f"<div style='color: #a1a1aa; margin-bottom:15px;'>Week {current_week} / {MAX_WEEKS}</div>", unsafe_allow_html=True)
         
         with st.form("decision_form"):
-            st.write("1. Pricing")
-            price_heavy = st.slider("Heavy Price ($)", 100, 300, 150, step=5)
-            price_light = st.slider("Light Price ($)", 50, 150, 80, step=5)
+            with st.expander("1. Pricing", expanded=True):
+                price_heavy = st.slider("Heavy Price ($)", 100, 300, 150, step=5)
+                price_light = st.slider("Light Price ($)", 50, 150, 80, step=5)
             
-            st.write("2. Investment")
-            rd_spend = st.number_input("R&D Investment ($)", min_value=0, step=10000, value=0)
-            mkt_e = st.number_input("Mkt Spend (East Hub)", min_value=0, step=5000, value=10000)
-            mkt_w = st.number_input("Mkt Spend (West Hub)", min_value=0, step=5000, value=10000)
-            buy_intel = st.checkbox("Buy Market Intel ($25k)", value=True)
+            with st.expander("2. Investment"):
+                rd_spend = st.number_input("R&D Investment ($)", min_value=0, step=10000, value=0)
+                mkt_e = st.number_input("Mkt Spend (East Hub)", min_value=0, step=5000, value=10000)
+                mkt_w = st.number_input("Mkt Spend (West Hub)", min_value=0, step=5000, value=10000)
+                buy_intel = st.checkbox("Buy Market Intel ($25k)", value=True)
             
-            st.write("3. Operations")
-            proc_mode = st.selectbox("Freight Mode", ["Standard (1 Wk)", "Economy (2 Wks)", "Express (Instant)"])
-            buy_metal = st.number_input(f"Order Metal (${env_cost_met})", min_value=0, step=500, value=0)
-            buy_plastic = st.number_input(f"Order Plastic (${env_cost_pla})", min_value=0, step=500, value=0)
-            make_heavy = st.number_input("Produce Heavy", min_value=0, step=100, value=500)
-            make_light = st.number_input("Produce Light", min_value=0, step=100, value=800)
+            with st.expander("3. Procurement & Production"):
+                proc_mode = st.selectbox("Freight Mode", ["Standard (1 Wk)", "Economy (2 Wks)", "Express (Instant)"])
+                buy_metal = st.number_input(f"Order Metal (${env_cost_met})", min_value=0, step=500, value=0)
+                buy_plastic = st.number_input(f"Order Plastic (${env_cost_pla})", min_value=0, step=500, value=0)
+                make_heavy = st.number_input("Produce Heavy", min_value=0, step=100, value=500)
+                make_light = st.number_input("Produce Light", min_value=0, step=100, value=800)
             
-            st.write("4. Shipping")
-            e_mode = st.selectbox("East Freight Mode", ["Standard (1 Wk)", "Economy (2 Wks)", "Express (Instant)"])
-            col1, col2 = st.columns(2)
-            ship_east_heavy = col1.number_input("Heavy (E)", min_value=0, step=100, value=250)
-            ship_east_light = col2.number_input("Light (E)", min_value=0, step=100, value=400)
-            w_mode = st.selectbox("West Freight Mode", ["Standard (1 Wk)", "Economy (2 Wks)", "Express (Instant)"])
-            col3, col4 = st.columns(2)
-            ship_west_heavy = col3.number_input("Heavy (W)", min_value=0, step=100, value=250)
-            ship_west_light = col4.number_input("Light (W)", min_value=0, step=100, value=400)
+            with st.expander("4. Outbound Shipping"):
+                e_mode = st.selectbox("East Freight Mode", ["Standard (1 Wk)", "Economy (2 Wks)", "Express (Instant)"])
+                col1, col2 = st.columns(2)
+                ship_east_heavy = col1.number_input("Heavy (E)", min_value=0, step=100, value=250)
+                ship_east_light = col2.number_input("Light (E)", min_value=0, step=100, value=400)
+                w_mode = st.selectbox("West Freight Mode", ["Standard (1 Wk)", "Economy (2 Wks)", "Express (Instant)"])
+                col3, col4 = st.columns(2)
+                ship_west_heavy = col3.number_input("Heavy (W)", min_value=0, step=100, value=250)
+                ship_west_light = col4.number_input("Light (W)", min_value=0, step=100, value=400)
 
-            st.write("5. Finance & Capex")
-            cap_prod = st.number_input("Add Factory Hrs ($50/hr)", min_value=0, step=100)
-            cap_wh = st.number_input("Add Raw WH ($2/u)", min_value=0, step=1000)
-            cap_he = st.number_input("Add East Hub ($5/u)", min_value=0, step=500)
-            cap_hw = st.number_input("Add West Hub ($5/u)", min_value=0, step=500)
-            cap_tr = st.number_input("Add Transit ($10/u)", min_value=0, step=500)
-            net_financing = st.number_input("Net Financing (+ Borrow / - Repay)", value=0, step=100000)
+            with st.expander("5. Finance & CAPEX"):
+                cap_prod = st.number_input("Add Factory Hrs ($50/hr)", min_value=0, step=100)
+                cap_wh = st.number_input("Add Raw WH ($2/u)", min_value=0, step=1000)
+                cap_he = st.number_input("Add East Hub ($5/u)", min_value=0, step=500)
+                cap_hw = st.number_input("Add West Hub ($5/u)", min_value=0, step=500)
+                cap_tr = st.number_input("Add Transit ($10/u)", min_value=0, step=500)
+                net_financing = st.number_input("Net Financing (+ Borrow / - Repay)", value=0, step=100000)
             
+            st.markdown("<br>", unsafe_allow_html=True)
             submitted = st.form_submit_button("Submit Week", type="primary", use_container_width=True)
             
             if submitted:
@@ -642,7 +668,7 @@ if st.session_state.role == 'team':
         else:
             k6.markdown(f"<div class='stat-card'><div class='stat-title'>Market Visibility</div><div class='stat-value' style='color:#64748b;'>CLASSIFIED</div></div>", unsafe_allow_html=True)
 
-        col_mid, col_right = st.columns(2)
+        col_mid, col_right, col_pie = st.columns([1.5, 1.5, 1])
         with col_mid:
             st.markdown("<div class='dash-panel'>", unsafe_allow_html=True)
             st.markdown("### Expense Breakdown")
@@ -673,6 +699,24 @@ if st.session_state.role == 'team':
                 st.plotly_chart(fig2, use_container_width=True)
             else:
                 st.info("Submit first week to generate chart.")
+            st.markdown("</div>", unsafe_allow_html=True)
+            
+        with col_pie:
+            st.markdown("<div class='dash-panel'>", unsafe_allow_html=True)
+            st.markdown("### Global Market Share")
+            if current_week > 1 and state['has_intel']:
+                global_ledger = supabase.table('ledger').select('team_id, revenue').eq('week', current_week - 1).execute().data
+                if global_ledger:
+                    labels = [GREEK_TEAMS[d['team_id']] for d in global_ledger]
+                    values = [d['revenue'] for d in global_ledger]
+                    fig3 = go.Figure(data=[go.Pie(labels=labels, values=values, hole=.3)])
+                    fig3.update_layout(template="plotly_dark", height=250, margin=dict(l=0, r=0, t=30, b=0), showlegend=False, paper_bgcolor='rgba(0,0,0,0)')
+                    fig3.update_traces(textinfo='label+percent', textfont_size=10)
+                    st.plotly_chart(fig3, use_container_width=True)
+            elif current_week == 1:
+                st.info("Market Share data will generate in Week 2.")
+            else:
+                st.info("Market Visibility Classified. Purchase Market Intel.")
             st.markdown("</div>", unsafe_allow_html=True)
             
         st.markdown("<div class='dash-panel'>", unsafe_allow_html=True)
@@ -777,7 +821,7 @@ if st.session_state.role == 'team':
         m1, m2 = st.columns(2)
         with m1:
             st.markdown("<div class='dash-panel'><h3 style='margin-top:0;'>Bill of Materials & Production</h3><table class='dash-table'><thead><tr><th>Product</th><th>Required Materials</th><th style='text-align: right;'>Factory Time</th></tr></thead><tbody><tr><td>Titan Heavy</td><td>2 Metal, 2 Plastic</td><td style='text-align: right;'>2 hours per unit</td></tr><tr><td>Titan Light</td><td>3 Plastic</td><td style='text-align: right;'>1 hour per unit</td></tr></tbody></table></div>", unsafe_allow_html=True)
-            st.markdown("<div class='dash-panel'><h3 style='margin-top:0;'>Market Demand Engine (MNL)</h3><p style='font-size: 13px; color: #a1a1aa;'>Demand is calculated via a zero-sum Multinomial Logit Model against the other 9 teams.</p><table class='dash-table'><thead><tr><th>Input</th><th>Effect on Demand</th></tr></thead><tbody><tr><td><b>Price</b></td><td>Negative linear effect. Crucial for Titan Light sales.</td></tr><tr><td><b>Marketing</b></td><td>Positive logarithmic effect (Diminishing returns).</td></tr><tr><td><b>R&D (Quality)</b></td><td>Positive linear effect. Crucial for Titan Heavy sales.</td></tr></tbody></table></div>", unsafe_allow_html=True)
+            st.markdown("<div class='dash-panel'><h3 style='margin-top:0;'>Market Demand Engine (MNL)</h3><p style='font-size: 13px; color: #a1a1aa;'>Demand is calculated via a zero-sum Multinomial Logit Model against the other active competitors.</p><table class='dash-table'><thead><tr><th>Input</th><th>Effect on Demand</th></tr></thead><tbody><tr><td><b>Price</b></td><td>Negative linear effect. Crucial for Titan Light sales.</td></tr><tr><td><b>Marketing</b></td><td>Positive logarithmic effect (Diminishing returns).</td></tr><tr><td><b>R&D (Quality)</b></td><td>Positive linear effect. Crucial for Titan Heavy sales.</td></tr></tbody></table></div>", unsafe_allow_html=True)
             st.markdown("<div class='dash-panel'><h3 style='margin-top:0;'>Corporate Finance</h3><table class='dash-table'><thead><tr><th>Rule</th><th>Details</th></tr></thead><tbody><tr><td><b>Interest Rate</b></td><td>2% per week on total outstanding debt.</td></tr><tr><td><b>Emergency Loan</b></td><td>Triggered if cash drops below 0. Adds a 5% penalty fee to the borrowed principal.</td></tr><tr><td><b>Bankruptcy</b></td><td>If total debt exceeds $15,000,000, the bank seizes the company (Game Over).</td></tr></tbody></table></div>", unsafe_allow_html=True)
         with m2:
             st.markdown("<div class='dash-panel'><h3 style='margin-top:0;'>Macroeconomic Shocks</h3><table class='dash-table'><thead><tr><th>Event</th><th>Timing</th><th>Impact</th></tr></thead><tbody><tr><td><b>Market Contraction</b></td><td>Weeks 4 & 5</td><td>Total available market drops 15% across all regions.</td></tr><tr><td><b>Supply Chain Crisis</b></td><td>Weeks 7 & 8</td><td>Metal cost increases to $15. Plastic cost increases to $8.</td></tr></tbody></table></div>", unsafe_allow_html=True)
@@ -785,4 +829,4 @@ if st.session_state.role == 'team':
             st.markdown("<div class='dash-panel'><h3 style='margin-top:0;'>Capacity Upgrades (CAPEX)</h3><table class='dash-table'><thead><tr><th>Facility</th><th style='text-align: right;'>Expansion Cost</th></tr></thead><tbody><tr><td>Factory Hours</td><td style='text-align: right;'>$50 per additional hour</td></tr><tr><td>Raw Warehouse</td><td style='text-align: right;'>$2 per unit of space</td></tr><tr><td>Hub Capacity (East/West)</td><td style='text-align: right;'>$5 per unit of space</td></tr><tr><td>Transit Capacity</td><td style='text-align: right;'>$10 per unit shipped</td></tr></tbody></table></div>", unsafe_allow_html=True)
 
     with tab_case:
-        st.markdown("<div class='dash-panel'><h1 class='case-header'>Titan Operations: Navigating the Perfect Storm</h1><div class='case-text'><p><b>Introduction</b><br>You have just been appointed as the Vice President of Supply Chain at Titan Operations, a mid-sized manufacturing firm specializing in heavy-duty machinery and light consumer electronics.</p><p>The board of directors expects you to stabilize the firm, capture market share against 9 other competitive firms in the industry, and generate maximum free cash flow over the next 12 weeks. Your performance will determine the future of the company.</p><p><b>The Products</b><br>Your facility produces two items:</p><ul><li><b>Titan Heavy:</b> A premium B2B product. Producing one unit takes 2 units of Metal, 2 units of Plastic, and 2 hours of factory time. Business buyers are highly sensitive to product quality.</li><li><b>Titan Light:</b> A budget B2C product. Producing one unit takes 3 units of Plastic and 1 hour of factory time. Consumer buyers are highly sensitive to price.</li></ul><p><b>The Network</b><br>You operate a single manufacturing plant that ships finished goods to two regional distribution centers: the East Hub and the West Hub. Every location in your network has strict capacity limits. If you order more raw materials than your warehouse can hold, the excess is discarded at your expense. If you try to push more volume through your transit pipelines or hubs than they can handle, the network will choke. You must actively invest capital (CAPEX) to upgrade these bottlenecks if you want to grow.</p><p><b>Market Dynamics</b><br>Demand is not guaranteed. You are competing directly against 9 other student teams for every sale. Your market share is calculated via a zero-sum Multinomial Logit engine governed by three factors:</p><ol><li><b>Pricing:</b> Lower prices steal market share, but erode your margins.</li><li><b>Marketing Spend:</b> Generates demand through regional hubs. Be careful: marketing has diminishing returns.</li><li><b>R&D (Quality):</b> Every dollar spent on R&D permanently increases your Quality Index. This compounds over the entire 12-week period and is critical for selling the Titan Heavy product.</li></ol><p>If you fail to purchase weekly Market Intelligence reports, you will fly blind and lose visibility into the macro market movements.</p><p><b>Logistics and Freight</b><br>You manage all inbound and outbound freight. You must balance speed against cost.</p><ul><li><b>Economy Freight:</b> Takes 2 weeks. Cheap, but carries a high risk of unexpected carrier delays.</li><li><b>Standard Freight:</b> Takes 1 week. Moderate cost and moderate risk.</li><li><b>Express Freight:</b> Arrives instantly in the same week. Very expensive, but allows you to correct stock-outs immediately.</li></ul><p>Pay attention to your trucking utilization. A Full Truckload (FTL) holds 1,000 units and charges a flat rate. Less-Than-Truckload (LTL) shipments charge a steep per-unit premium.</p><p><b>Corporate Finance</b><br>You begin with $5,000,000 in cash. Every asset you hold incurs holding costs, and your factory requires $150,000 per week in fixed overhead. You can borrow cash to fund rapid expansion, but the bank charges 2% weekly interest on all outstanding debt.</p><p>If your cash balance ever drops below zero, the bank will force an emergency bailout loan with a brutal 5% penalty fee. If your total debt exceeds $15,000,000, the bank will seize Titan Operations, and you will be terminated.</p><p><b>The Looming Storm</b><br>Macroeconomic forecasts are not promising.</p><ul><li><b>Q4/Q5 Recession:</b> Consumer spending data indicates the total market size will contract by 15% during Weeks 4 and 5. If you do not throttle back production, your hubs will overflow with unsold inventory.</li><li><b>Q7/Q8 Supply Shock:</b> Geopolitical instability is threatening the commodity markets. Expect raw material costs for Metal and Plastic to surge during Weeks 7 and 8. If you do not stockpile inventory beforehand, your margins will be erased.</li></ul><p>Your goal is to reach Week 12 with the highest Net Position (Cash minus Debt) possible. Do not run out of cash.</p></div></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='dash-panel'><h1 class='case-header'>Titan Operations: Navigating the Perfect Storm</h1><div class='case-text'><p><b>Introduction</b><br>You have just been appointed as the Vice President of Supply Chain at Titan Operations ({GREEK_TEAMS[tid]}), a mid-sized manufacturing firm specializing in heavy-duty machinery and light consumer electronics.</p><p>The board of directors expects you to stabilize the firm, capture market share against the other competitive firms in the industry, and generate maximum free cash flow over the next 12 weeks. Your performance will determine the future of the company.</p><p><b>The Products</b><br>Your facility produces two items:</p><ul><li><b>Titan Heavy:</b> A premium B2B product. Producing one unit takes 2 units of Metal, 2 units of Plastic, and 2 hours of factory time. Business buyers are highly sensitive to product quality.</li><li><b>Titan Light:</b> A budget B2C product. Producing one unit takes 3 units of Plastic and 1 hour of factory time. Consumer buyers are highly sensitive to price.</li></ul><p><b>The Network</b><br>You operate a single manufacturing plant that ships finished goods to two regional distribution centers: the East Hub and the West Hub. Every location in your network has strict capacity limits. If you order more raw materials than your warehouse can hold, the excess is discarded at your expense. If you try to push more volume through your transit pipelines or hubs than they can handle, the network will choke. You must actively invest capital (CAPEX) to upgrade these bottlenecks if you want to grow.</p><p><b>Market Dynamics</b><br>Demand is not guaranteed. You are competing directly against the other student competitors for every sale. Your market share is calculated via a zero-sum Multinomial Logit engine governed by three factors:</p><ol><li><b>Pricing:</b> Lower prices steal market share, but erode your margins.</li><li><b>Marketing Spend:</b> Generates demand through regional hubs. Be careful: marketing has diminishing returns.</li><li><b>R&D (Quality):</b> Every dollar spent on R&D permanently increases your Quality Index. This compounds over the entire 12-week period and is critical for selling the Titan Heavy product.</li></ol><p>If you fail to purchase weekly Market Intelligence reports, you will fly blind and lose visibility into the macro market movements.</p><p><b>Logistics and Freight</b><br>You manage all inbound and outbound freight. You must balance speed against cost.</p><ul><li><b>Economy Freight:</b> Takes 2 weeks. Cheap, but carries a high risk of unexpected carrier delays.</li><li><b>Standard Freight:</b> Takes 1 week. Moderate cost and moderate risk.</li><li><b>Express Freight:</b> Arrives instantly in the same week. Very expensive, but allows you to correct stock-outs immediately.</li></ul><p>Pay attention to your trucking utilization. A Full Truckload (FTL) holds 1,000 units and charges a flat rate. Less-Than-Truckload (LTL) shipments charge a steep per-unit premium.</p><p><b>Corporate Finance</b><br>You begin with $5,000,000 in cash. Every asset you hold incurs holding costs, and your factory requires $150,000 per week in fixed overhead. You can borrow cash to fund rapid expansion, but the bank charges 2% weekly interest on all outstanding debt.</p><p>If your cash balance ever drops below zero, the bank will force an emergency bailout loan with a brutal 5% penalty fee. If your total debt exceeds $15,000,000, the bank will seize Titan Operations, and you will be terminated.</p><p><b>The Looming Storm</b><br>Macroeconomic forecasts are not promising.</p><ul><li><b>Q4/Q5 Recession:</b> Consumer spending data indicates the total market size will contract by 15% during Weeks 4 and 5. If you do not throttle back production, your hubs will overflow with unsold inventory.</li><li><b>Q7/Q8 Supply Shock:</b> Geopolitical instability is threatening the commodity markets. Expect raw material costs for Metal and Plastic to surge during Weeks 7 and 8. If you do not stockpile inventory beforehand, your margins will be erased.</li></ul><p>Your goal is to reach Week 12 with the highest Net Position (Cash minus Debt) possible. Do not run out of cash.</p></div></div>", unsafe_allow_html=True)
