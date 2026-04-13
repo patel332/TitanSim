@@ -203,7 +203,6 @@ if st.session_state.role == 'instructor':
                         transit = s['transit_pipeline'] if isinstance(s['transit_pipeline'], list) else json.loads(s['transit_pipeline'])
                         new_t = []
                         
-                        # Process Arriving Goods
                         for t in transit:
                             t['weeks_left'] -= 1
                             if t['weeks_left'] <= 0:
@@ -222,14 +221,12 @@ if st.session_state.role == 'instructor':
                                     s['west_heavy_qty'] += int(t['heavy'] * ratio); s['west_light_qty'] += int(t['light'] * ratio)
                             else: new_t.append(t)
                         
-                        # Procurement
                         plead = get_lead_time(dec['proc_mode'])
                         pcost = calc_freight(dec['buy_metal'] + dec['buy_plastic'], dec['proc_mode'])
                         mcost = (dec['buy_metal'] * env_cost_met) + (dec['buy_plastic'] * env_cost_pla)
                         if plead == 0: s['metal_qty'] += dec['buy_metal']; s['plastic_qty'] += dec['buy_plastic']
                         elif dec['buy_metal'] > 0 or dec['buy_plastic'] > 0: new_t.append({'type': 'raw', 'metal': dec['buy_metal'], 'plastic': dec['buy_plastic'], 'weeks_left': plead})
 
-                        # Manufacturing
                         hrs = s['fac_hours']
                         uh = min(dec['make_heavy'], s['metal_qty'] // 2, s['plastic_qty'] // 2, hrs // 2)
                         s['metal_qty'] -= uh * 2; s['plastic_qty'] -= uh * 2; s['heavy_qty'] += uh; hrs -= (uh * 2)
@@ -237,7 +234,6 @@ if st.session_state.role == 'instructor':
                         s['plastic_qty'] -= ul * 3; s['light_qty'] += ul
                         s['last_hours_used'] = s['fac_hours'] - hrs
                         
-                        # Shipping
                         tcap = s['transit_limit']
                         t_e = dec['ship_east_heavy'] + dec['ship_east_light']; r_e = tcap / t_e if t_e > tcap else 1
                         seh = min(int(dec['ship_east_heavy'] * r_e), s['heavy_qty']); s['heavy_qty'] -= seh
@@ -255,7 +251,6 @@ if st.session_state.role == 'instructor':
                         if lw == 0: s['west_heavy_qty'] += swh; s['west_light_qty'] += swl
                         elif swh > 0 or swl > 0: new_t.append({'type': 'finished_west', 'heavy': swh, 'light': swl, 'weeks_left': lw})
 
-                        # Sales Engine
                         dh = int(env_mkt_h * (data['u_h'] / tot_u_h)) if tot_u_h > 0 else 0
                         dl = int(env_mkt_l * (data['u_l'] / tot_u_l)) if tot_u_l > 0 else 0
                         
@@ -304,7 +299,7 @@ if st.session_state.role == 'instructor':
             c_states['Net'] = c_states['cash'] - c_states['debt']
             
             st.subheader("Global Leaderboard (Net Position)")
-            fig_bar = go.Figure(go.Bar(x=c_states['Team'], y=c_states['Net'], marker_color=['#10b981' if v>=0 else '#f43f5e' for v in c_states['Net']]))
+            fig_bar = go.Figure(go.Bar(x=c_states['Team'], y=c_states['Net'], marker_color=['#10b981' if v>=0 else '#e11d48' for v in c_states['Net']]))
             fig_bar.update_layout(height=350, margin=dict(l=0, r=0, t=10, b=0))
             st.plotly_chart(fig_bar, use_container_width=True, theme="streamlit")
             
@@ -312,15 +307,15 @@ if st.session_state.role == 'instructor':
             with ch1:
                 st.subheader("Revenue Trajectory")
                 fig_rev = go.Figure()
-                for team in df['Team'].unique():
+                for i, team in enumerate(df['Team'].unique()):
                     tdf = df[df['Team'] == team].sort_values('week')
-                    fig_rev.add_trace(go.Scatter(x=tdf['week'], y=tdf['revenue'], mode='lines+markers', name=team))
+                    fig_rev.add_trace(go.Scatter(x=tdf['week'], y=tdf['revenue'], mode='lines+markers', name=team, line=dict(color=CORP_COLORS[i % len(CORP_COLORS)], width=3)))
                 fig_rev.update_layout(height=350, margin=dict(l=0, r=0, t=10, b=0))
                 st.plotly_chart(fig_rev, use_container_width=True, theme="streamlit")
             with ch2:
                 st.subheader("Market Share Dominance")
                 lw = df[df['week'] == df['week'].max()]
-                fig_pie = go.Figure(go.Pie(labels=lw['Team'], values=lw['revenue'], hole=0.4))
+                fig_pie = go.Figure(go.Pie(labels=lw['Team'], values=lw['revenue'], hole=0.4, marker=dict(colors=CORP_COLORS)))
                 fig_pie.update_layout(height=350, margin=dict(l=0, r=0, t=10, b=0))
                 st.plotly_chart(fig_pie, use_container_width=True, theme="streamlit")
 
@@ -357,7 +352,6 @@ if st.session_state.role == 'team':
     if has_submitted(tid, gs['current_week']):
         st.info(f"### Strategy Locked for Week {gs['current_week']}.")
         st.write("Awaiting competitor actions and global market resolution.")
-        if st.button("Refresh Dashboard"): st.rerun()
         st.stop()
 
     with st.sidebar:
@@ -368,27 +362,32 @@ if st.session_state.role == 'team':
                 ph = st.slider("Heavy Price ($)", 100, 400, 150)
                 pl = st.slider("Light Price ($)", 50, 200, 80)
             with st.expander("2. R&D & Marketing"):
-                rds = st.number_input("R&D Invest", step=10000)
-                mke = st.number_input("Mkt (East)", value=10000, step=5000)
-                mkw = st.number_input("Mkt (West)", value=10000, step=5000)
+                rds = st.number_input("R&D Invest", min_value=0, value=0, step=10000)
+                mke = st.number_input("Mkt (East)", min_value=0, value=10000, step=5000)
+                mkw = st.number_input("Mkt (West)", min_value=0, value=10000, step=5000)
                 intel = st.checkbox("Market Intel ($25k)", value=True)
             with st.expander("3. Production Control"):
-                pmode = st.selectbox("Inbound", ["Standard (1 Wk)", "Economy (2 Wks)", "Express (Instant)"])
-                bm = st.number_input(f"Metal (${c_met})", step=500)
-                bp = st.number_input(f"Plastic (${c_pla})", step=500)
-                mh = st.number_input("Build Heavy", value=500, step=100)
-                ml = st.number_input("Build Light", value=800, step=100)
+                pmode = st.selectbox("Inbound Freight", ["Standard (1 Wk)", "Economy (2 Wks)", "Express (Instant)"])
+                bm = st.number_input(f"Metal (${c_met})", min_value=0, value=0, step=500)
+                bp = st.number_input(f"Plastic (${c_pla})", min_value=0, value=0, step=500)
+                mh = st.number_input("Build Heavy", min_value=0, value=500, step=100)
+                ml = st.number_input("Build Light", min_value=0, value=800, step=100)
             with st.expander("4. Network Logistics"):
                 st.caption("East Bound")
                 emode = st.selectbox("E-Freight", ["Standard (1 Wk)", "Economy (2 Wks)", "Express (Instant)"])
-                seh, sel = st.number_input("Heavy(E)", value=250), st.number_input("Light(E)", value=400)
+                seh = st.number_input("Heavy(E)", min_value=0, value=250)
+                sel = st.number_input("Light(E)", min_value=0, value=400)
                 st.caption("West Bound")
                 wmode = st.selectbox("W-Freight", ["Standard (1 Wk)", "Economy (2 Wks)", "Express (Instant)"])
-                swh, swl = st.number_input("Heavy(W)", value=250), st.number_input("Light(W)", value=400)
+                swh = st.number_input("Heavy(W)", min_value=0, value=250)
+                swl = st.number_input("Light(W)", min_value=0, value=400)
             with st.expander("5. Finance & CAPEX"):
-                cap_p, cap_rw = st.number_input("Add Hrs ($50)", step=100), st.number_input("Add RawWH ($2)", step=1000)
-                cap_eh, cap_wh = st.number_input("Add EastHub ($5)", step=500), st.number_input("Add WestHub ($5)", step=500)
-                cap_tr, nf = st.number_input("Add Transit ($10)", step=500), st.number_input("Financing (+/-)", step=100000)
+                cap_p = st.number_input("Add Hrs ($50)", min_value=0, value=0, step=100)
+                cap_rw = st.number_input("Add RawWH ($2)", min_value=0, value=0, step=1000)
+                cap_eh = st.number_input("Add EastHub ($5)", min_value=0, value=0, step=500)
+                cap_wh = st.number_input("Add WestHub ($5)", min_value=0, value=0, step=500)
+                cap_tr = st.number_input("Add Transit ($10)", min_value=0, value=0, step=500)
+                nf = st.number_input("Financing (+/-)", value=0, step=100000) # Can be negative to repay debt
             
             if st.form_submit_button("EXECUTE STRATEGY", use_container_width=True, type="primary"):
                 supabase.table('pending_decisions').insert({
@@ -398,7 +397,8 @@ if st.session_state.role == 'team':
                     'ship_east_light': sel, 'ship_west_light': swl, 'e_mode': emode, 'w_mode': wmode,
                     'cap_prod': cap_p, 'cap_wh': cap_rw, 'cap_he': cap_eh, 'cap_hw': cap_wh, 'cap_tr': cap_tr,
                     'net_fin': nf, 'buy_intel': intel, 'proc_mode': pmode
-                }).execute(); st.rerun()
+                }).execute()
+                st.rerun()
 
     st.title("Operations Command Center")
     if "RECESSION" in env_msg or "SHOCK" in env_msg: st.error(env_msg)
@@ -419,9 +419,9 @@ if st.session_state.role == 'team':
             with cg1:
                 st.subheader("Revenue vs Stockout Erosion")
                 fig1 = go.Figure()
-                fig1.add_trace(go.Bar(x=df['week'], y=df['revenue'], name="Revenue", marker_color="#0284c7"))
-                fig1.add_trace(go.Bar(x=df['week'], y=df['lost_sales'], name="Lost Sales", marker_color="#e11d48"))
-                fig1.update_layout(barmode='group', height=300, margin=dict(l=0, r=0, t=10, b=0))
+                fig1.add_trace(go.Scatter(x=df['week'], y=df['revenue'], name="Revenue", mode="lines+markers", line=dict(color="#0284c7", width=3)))
+                fig1.add_trace(go.Scatter(x=df['week'], y=df['lost_sales'], name="Lost Sales", mode="lines+markers", line=dict(color="#e11d48", width=3)))
+                fig1.update_layout(height=300, margin=dict(l=0, r=0, t=10, b=0))
                 st.plotly_chart(fig1, use_container_width=True, theme="streamlit")
             with cg2:
                 if s['has_intel'] and gs['current_week'] > 1:
@@ -439,6 +439,10 @@ if st.session_state.role == 'team':
                 fig3.add_trace(go.Bar(x=df['week'], y=df[col], name=name, marker_color=clr))
             fig3.update_layout(barmode='stack', height=300, margin=dict(l=0, r=0, t=10, b=0))
             st.plotly_chart(fig3, use_container_width=True, theme="streamlit")
+            
+            st.markdown("---")
+            st.subheader("Complete Historical Ledger")
+            st.dataframe(df.set_index('week'), use_container_width=True)
 
     with t2:
         i1, i2, i3, i4 = st.columns(4)
