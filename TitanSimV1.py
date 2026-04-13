@@ -139,7 +139,7 @@ if st.session_state.role == 'instructor':
         st.markdown("---")
         st.caption("DANGER ZONE")
         if st.button("Hard Reset Simulation"):
-            with st.spinner("Reformatting..."):
+            with st.spinner("Reformatting Database..."):
                 supabase.table('game_state').update({'current_week': 1, 'status': 'lobby'}).eq('id', 1).execute()
                 supabase.table('pending_decisions').delete().neq('team_id', 0).execute()
                 supabase.table('ledger').delete().neq('team_id', 0).execute()
@@ -203,6 +203,7 @@ if st.session_state.role == 'instructor':
                         transit = s['transit_pipeline'] if isinstance(s['transit_pipeline'], list) else json.loads(s['transit_pipeline'])
                         new_t = []
                         
+                        # Process Arriving Goods
                         for t in transit:
                             t['weeks_left'] -= 1
                             if t['weeks_left'] <= 0:
@@ -221,12 +222,14 @@ if st.session_state.role == 'instructor':
                                     s['west_heavy_qty'] += int(t['heavy'] * ratio); s['west_light_qty'] += int(t['light'] * ratio)
                             else: new_t.append(t)
                         
+                        # Procurement
                         plead = get_lead_time(dec['proc_mode'])
                         pcost = calc_freight(dec['buy_metal'] + dec['buy_plastic'], dec['proc_mode'])
                         mcost = (dec['buy_metal'] * env_cost_met) + (dec['buy_plastic'] * env_cost_pla)
                         if plead == 0: s['metal_qty'] += dec['buy_metal']; s['plastic_qty'] += dec['buy_plastic']
                         elif dec['buy_metal'] > 0 or dec['buy_plastic'] > 0: new_t.append({'type': 'raw', 'metal': dec['buy_metal'], 'plastic': dec['buy_plastic'], 'weeks_left': plead})
 
+                        # Manufacturing
                         hrs = s['fac_hours']
                         uh = min(dec['make_heavy'], s['metal_qty'] // 2, s['plastic_qty'] // 2, hrs // 2)
                         s['metal_qty'] -= uh * 2; s['plastic_qty'] -= uh * 2; s['heavy_qty'] += uh; hrs -= (uh * 2)
@@ -234,6 +237,7 @@ if st.session_state.role == 'instructor':
                         s['plastic_qty'] -= ul * 3; s['light_qty'] += ul
                         s['last_hours_used'] = s['fac_hours'] - hrs
                         
+                        # Shipping
                         tcap = s['transit_limit']
                         t_e = dec['ship_east_heavy'] + dec['ship_east_light']; r_e = tcap / t_e if t_e > tcap else 1
                         seh = min(int(dec['ship_east_heavy'] * r_e), s['heavy_qty']); s['heavy_qty'] -= seh
@@ -251,6 +255,7 @@ if st.session_state.role == 'instructor':
                         if lw == 0: s['west_heavy_qty'] += swh; s['west_light_qty'] += swl
                         elif swh > 0 or swl > 0: new_t.append({'type': 'finished_west', 'heavy': swh, 'light': swl, 'weeks_left': lw})
 
+                        # Sales Engine
                         dh = int(env_mkt_h * (data['u_h'] / tot_u_h)) if tot_u_h > 0 else 0
                         dl = int(env_mkt_l * (data['u_l'] / tot_u_l)) if tot_u_l > 0 else 0
                         
@@ -367,7 +372,7 @@ if st.session_state.role == 'team':
                 mkw = st.number_input("Mkt (West)", min_value=0, value=10000, step=5000)
                 intel = st.checkbox("Market Intel ($25k)", value=True)
             with st.expander("3. Production Control"):
-                pmode = st.selectbox("Inbound Freight", ["Standard (1 Wk)", "Economy (2 Wks)", "Express (Instant)"])
+                pmode = st.selectbox("Inbound", ["Standard (1 Wk)", "Economy (2 Wks)", "Express (Instant)"])
                 bm = st.number_input(f"Metal (${c_met})", min_value=0, value=0, step=500)
                 bp = st.number_input(f"Plastic (${c_pla})", min_value=0, value=0, step=500)
                 mh = st.number_input("Build Heavy", min_value=0, value=500, step=100)
@@ -375,30 +380,44 @@ if st.session_state.role == 'team':
             with st.expander("4. Network Logistics"):
                 st.caption("East Bound")
                 emode = st.selectbox("E-Freight", ["Standard (1 Wk)", "Economy (2 Wks)", "Express (Instant)"])
-                seh = st.number_input("Heavy(E)", min_value=0, value=250)
-                sel = st.number_input("Light(E)", min_value=0, value=400)
+                c1, c2 = st.columns(2)
+                seh = c1.number_input("Heavy(E)", min_value=0, value=250)
+                sel = c2.number_input("Light(E)", min_value=0, value=400)
                 st.caption("West Bound")
                 wmode = st.selectbox("W-Freight", ["Standard (1 Wk)", "Economy (2 Wks)", "Express (Instant)"])
-                swh = st.number_input("Heavy(W)", min_value=0, value=250)
-                swl = st.number_input("Light(W)", min_value=0, value=400)
+                c3, c4 = st.columns(2)
+                swh = c3.number_input("Heavy(W)", min_value=0, value=250)
+                swl = c4.number_input("Light(W)", min_value=0, value=400)
             with st.expander("5. Finance & CAPEX"):
-                cap_p = st.number_input("Add Hrs ($50)", min_value=0, value=0, step=100)
-                cap_rw = st.number_input("Add RawWH ($2)", min_value=0, value=0, step=1000)
-                cap_eh = st.number_input("Add EastHub ($5)", min_value=0, value=0, step=500)
-                cap_wh = st.number_input("Add WestHub ($5)", min_value=0, value=0, step=500)
+                c5, c6 = st.columns(2)
+                cap_p = c5.number_input("Add Hrs ($50)", min_value=0, value=0, step=100)
+                cap_rw = c6.number_input("Add RawWH ($2)", min_value=0, value=0, step=1000)
+                c7, c8 = st.columns(2)
+                cap_eh = c7.number_input("Add EHub ($5)", min_value=0, value=0, step=500)
+                cap_wh = c8.number_input("Add WHub ($5)", min_value=0, value=0, step=500)
                 cap_tr = st.number_input("Add Transit ($10)", min_value=0, value=0, step=500)
-                nf = st.number_input("Financing (+/-)", value=0, step=100000) # Can be negative to repay debt
+                nf = st.number_input("Financing (+/-)", value=0, step=100000)
             
             if st.form_submit_button("EXECUTE STRATEGY", use_container_width=True, type="primary"):
-                supabase.table('pending_decisions').insert({
-                    'team_id': tid, 'week': gs['current_week'], 'price_h': ph, 'price_l': pl,
-                    'rd_spend': rds, 'mkt_e': mke, 'mkt_w': mkw, 'buy_metal': bm, 'buy_plastic': bp,
-                    'make_heavy': mh, 'make_light': ml, 'ship_east_heavy': seh, 'ship_west_heavy': swh,
-                    'ship_east_light': sel, 'ship_west_light': swl, 'e_mode': emode, 'w_mode': wmode,
-                    'cap_prod': cap_p, 'cap_wh': cap_rw, 'cap_he': cap_eh, 'cap_hw': cap_wh, 'cap_tr': cap_tr,
-                    'net_fin': nf, 'buy_intel': intel, 'proc_mode': pmode
-                }).execute()
-                st.rerun()
+                try:
+                    # UPSERT combined with int() casting makes this payload completely bulletproof
+                    supabase.table('pending_decisions').upsert({
+                        'team_id': int(tid), 'week': int(gs['current_week']), 
+                        'price_h': int(ph), 'price_l': int(pl),
+                        'rd_spend': int(rds), 'mkt_e': int(mke), 'mkt_w': int(mkw), 
+                        'buy_metal': int(bm), 'buy_plastic': int(bp),
+                        'make_heavy': int(mh), 'make_light': int(ml), 
+                        'ship_east_heavy': int(seh), 'ship_west_heavy': int(swh),
+                        'ship_east_light': int(sel), 'ship_west_light': int(swl), 
+                        'e_mode': str(emode), 'w_mode': str(wmode),
+                        'cap_prod': int(cap_p), 'cap_wh': int(cap_rw), 
+                        'cap_he': int(cap_eh), 'cap_hw': int(cap_wh), 
+                        'cap_tr': int(cap_tr), 'net_fin': int(nf), 
+                        'buy_intel': bool(intel), 'proc_mode': str(pmode)
+                    }).execute()
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Sync error. Try again. ({e})")
 
     st.title("Operations Command Center")
     if "RECESSION" in env_msg or "SHOCK" in env_msg: st.error(env_msg)
